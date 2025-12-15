@@ -144,7 +144,6 @@ def model_process(path_info):
                 for idx,p in enumerate(guess_end_path):
                     temp.append(guess_end.predict_guess_end_score(p,idx))
                 guess_end_result=sum(temp)
-                # print('--------------\n\n\n',guess_end_result,idx,'\n\n\n----------------------')
 
 
                 fin_scores['GUESS_END']=int(guess_end_result)
@@ -213,13 +212,13 @@ def model_process(path_info):
                         temp_ptk.append(ptk_sound.ptk_whole(ptk_sound_path[i]))
 
                 if temp_p:
-                    fin_scores['P_SOUND']=round(max(temp_p), 2)
+                    fin_scores['P_SOUND']=str(round(max(temp_p), 2))
                 if temp_t:
-                    fin_scores['T_SOUND']=round(max(temp_t), 2)
+                    fin_scores['T_SOUND']=str(round(max(temp_t), 2))
                 if temp_k:
-                    fin_scores['K_SOUND']=round(max(temp_k), 2)
+                    fin_scores['K_SOUND']=str(round(max(temp_k), 2))
                 if temp_ptk:
-                    fin_scores['PTK_SOUND']=round(max(temp_ptk), 2)
+                    fin_scores['PTK_SOUND']=str(round(max(temp_ptk), 2))
                 print(f"PTK_SOUND 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 print(f"PTK_SOUND 모델 실행 중 오류 발생: {e}")
@@ -253,6 +252,7 @@ def model_process(path_info):
         #     'PTK_SOUND':ptk_sound_result[3],
         #     'TALK_CLEAN':talk_clean_result
         # }
+
         return fin_scores
 
     except Exception as e:
