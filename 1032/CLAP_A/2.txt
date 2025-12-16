@@ -1,0 +1,7 @@
+연습 TypedValue{t=0x3/d=0x3a1 "res/drawable/clap_e_2_p_bus.png" a=14 r=0x7f0800b4} 
+1 TypedValue{t=0x3/d=0x399 "res/drawable/clap_a_2_p_umbrella.png" a=14 r=0x7f0800ac} 
+2 TypedValue{t=0x3/d=0x382 "res/drawable/clap_a_2_p_bike.png" a=14 r=0x7f080095} 
+3 TypedValue{t=0x3/d=0x390 "res/drawable/clap_a_2_p_pot.png" a=14 r=0x7f0800a3} 
+4 TypedValue{t=0x3/d=0x386 "res/drawable/clap_a_2_p_clock.png" a=14 r=0x7f080099} 
+5 TypedValue{t=0x3/d=0x393 "res/drawable/clap_a_2_p_spoon.png" a=14 r=0x7f0800a6} 
+6 TypedValue{t=0x3/d=0x38b "res/drawable/clap_a_2_p_key.png" a=14 r=0x7f08009e} 

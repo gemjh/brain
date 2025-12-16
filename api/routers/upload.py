@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -8,7 +8,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from database import get_db
+from ..database import get_db
 
 router = APIRouter()
 
@@ -43,15 +43,10 @@ class FileMetadata(BaseModel):
     question_cd: str
     question_no: int
     question_minor_no: int
-    main_path: str
-    sub_path: str
     file_name: str
     duration: float
     rate: int
-
-
-class FileMetadataBulk(BaseModel):
-    files: List[FileMetadata]
+    # Path 관련 필드 제거 (MAIN_PATH, SUB_PATH)
 
 
 class ScoreData(BaseModel):
@@ -66,21 +61,6 @@ class ScoreData(BaseModel):
 
 class ScoreBulk(BaseModel):
     scores: List[ScoreData]
-
-
-# ============================================
-# 헬퍼 함수
-# ============================================
-def to_sql_value(val):
-    """Python 값을 SQL 문자열로 변환"""
-    if val is None:
-        return "NULL"
-    elif isinstance(val, str):
-        # SQL Injection 방지를 위한 escape
-        escaped = val.replace("'", "''")
-        return f"'{escaped}'"
-    else:
-        return str(val)
 
 
 # ============================================
@@ -106,7 +86,6 @@ def get_order_num(patient_id: str, db: Session = Depends(get_db)):
 def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(get_db)):
     """환자 검사 정보 저장"""
     try:
-        # SQL 파라미터 준비
         params = {
             'patient_id': data.patient_id,
             'order_num': data.order_num,
@@ -152,49 +131,314 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
         raise HTTPException(status_code=500, detail=f"환자 검사 정보 저장 실패: {str(e)}")
 
 
-@router.post("/assessments/files/bulk")
-def save_file_metadata_bulk(data: FileMetadataBulk, db: Session = Depends(get_db)):
-    """파일 메타데이터 일괄 저장"""
+@router.post("/assessments/files/upload")
+async def upload_files_with_metadata(
+    patient_id: str,
+    order_num: int,
+    assess_type: str,
+    question_cd: str,
+    question_no: int,
+    question_minor_no: int,
+    duration: float,
+    rate: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    파일을 blob으로 저장 (단일 파일)
+    wav, m4a 등 다양한 오디오 포맷 지원
+    
+    Args:
+        patient_id: 환자 ID
+        order_num: 검사 회차
+        assess_type: 검사 유형 (CLAP_A, CLAP_D)
+        question_cd: 문항 코드
+        question_no: 문항 번호
+        question_minor_no: 하위 문항 번호
+        duration: 오디오 길이
+        rate: 샘플링 레이트
+        file: 업로드 파일 (wav, m4a 등)
+    """
     try:
-        if not data.files:
-            raise HTTPException(status_code=400, detail="저장할 파일 정보가 없습니다")
+        # 파일 읽기
+        file_content = await file.read()
         
-        # 일괄 INSERT를 위한 values 리스트 생성
-        values = []
-        for file in data.files:
-            values.append(f"""(
-                '{file.patient_id}', {file.order_num}, '{file.assess_type}', 
-                '{file.question_cd}', {file.question_no}, {file.question_minor_no},
-                '{file.main_path}', '{file.sub_path}', '{file.file_name}',
-                {file.duration}, {file.rate}
-            )""")
+        # 파일 확장자 검증
+        file_ext = os.path.splitext(file.filename)[1].lower()
+        allowed_extensions = ['.wav', '.m4a', '.mp4', '.aac']
         
-        query = text(f"""
+        if file_ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"지원하지 않는 파일 형식: {file_ext}. 허용: {', '.join(allowed_extensions)}"
+            )
+        
+        query = text("""
             INSERT INTO assess_file_lst (
                 PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, 
-                QUESTION_NO, QUESTION_MINOR_NO, MAIN_PATH, SUB_PATH, 
-                FILE_NAME, DURATION, RATE
-            ) VALUES {','.join(values)}
+                QUESTION_NO, QUESTION_MINOR_NO, FILE_NAME, 
+                DURATION, RATE, FILE_CONTENT
+            ) VALUES (
+                :patient_id, :order_num, :assess_type, :question_cd,
+                :question_no, :question_minor_no, :file_name,
+                :duration, :rate, :file_content
+            )
         """)
         
-        db.execute(query)
+        db.execute(query, {
+            'patient_id': patient_id,
+            'order_num': order_num,
+            'assess_type': assess_type,
+            'question_cd': question_cd,
+            'question_no': question_no,
+            'question_minor_no': question_minor_no,
+            'file_name': file.filename,
+            'duration': duration,
+            'rate': rate,
+            'file_content': file_content
+        })
         db.commit()
         
         return {
             "success": True,
-            "message": f"파일 메타데이터 {len(data.files)}건 저장 완료",
-            "count": len(data.files)
+            "message": f"파일 저장 완료: {file.filename}",
+            "file_size": len(file_content),
+            "file_type": file_ext
         }
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"파일 메타데이터 저장 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
+
+
+@router.post("/assessments/files/bulk-upload")
+async def upload_files_bulk(
+    files: List[UploadFile] = File(...),
+    metadata: str = None,  # JSON 문자열로 메타데이터 전달
+    db: Session = Depends(get_db)
+):
+    """
+    여러 파일을 한번에 blob으로 저장
+    
+    Args:
+        files: 업로드 파일 리스트
+        metadata: 파일별 메타데이터 (JSON 문자열)
+    """
+    import json
+    
+    try:
+        # 메타데이터 파싱
+        metadata_list = json.loads(metadata) if metadata else []
+        
+        if len(files) != len(metadata_list):
+            raise HTTPException(
+                status_code=400, 
+                detail="파일 개수와 메타데이터 개수가 일치하지 않습니다"
+            )
+        
+        saved_files = []
+        
+        for file, meta in zip(files, metadata_list):
+            file_content = await file.read()
+            
+            query = text("""
+                INSERT INTO assess_file_lst (
+                    PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, 
+                    QUESTION_NO, QUESTION_MINOR_NO, FILE_NAME, 
+                    DURATION, RATE, FILE_CONTENT
+                ) VALUES (
+                    :patient_id, :order_num, :assess_type, :question_cd,
+                    :question_no, :question_minor_no, :file_name,
+                    :duration, :rate, :file_content
+                )
+            """)
+            
+            db.execute(query, {
+                'patient_id': meta['patient_id'],
+                'order_num': meta['order_num'],
+                'assess_type': meta['assess_type'],
+                'question_cd': meta['question_cd'],
+                'question_no': meta['question_no'],
+                'question_minor_no': meta['question_minor_no'],
+                'file_name': file.filename,
+                'duration': meta['duration'],
+                'rate': meta['rate'],
+                'file_content': file_content
+            })
+            
+            saved_files.append({
+                'filename': file.filename,
+                'size': len(file_content)
+            })
+        
+        db.commit()
+        
+        return {
+            "success": True,
+            "message": f"{len(saved_files)}개 파일 저장 완료",
+            "files": saved_files
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
+
+
+@router.get("/assessments/{patient_id}/{order_num}/files")
+def get_assessment_files(patient_id: str, order_num: int, db: Session = Depends(get_db)):
+    """
+    특정 검사의 파일 목록 조회 (메타데이터만, blob 제외)
+    """
+    try:
+        query = text("""
+            SELECT 
+                A.PATIENT_ID, A.ORDER_NUM, A.ASSESS_TYPE, A.QUESTION_CD,
+                A.QUESTION_NO, A.FILE_NAME, A.DURATION, A.RATE,
+                LENGTH(A.FILE_CONTENT) as FILE_SIZE
+            FROM assess_file_lst A
+            INNER JOIN code_mast C 
+              ON C.CODE_TYPE = 'ASSESS_TYPE' 
+             AND A.ASSESS_TYPE = C.MAST_CD 
+             AND A.QUESTION_CD = C.SUB_CD
+            WHERE A.PATIENT_ID = :patient_id 
+              AND A.ORDER_NUM = :order_num 
+              AND A.USE_YN = 'Y'
+            ORDER BY A.ASSESS_TYPE, C.ORDER_NUM, A.QUESTION_NO
+        """)
+        
+        result = db.execute(query, {
+            "patient_id": patient_id,
+            "order_num": order_num
+        }).fetchall()
+        
+        return [
+            {
+                "PATIENT_ID": row[0],
+                "ORDER_NUM": row[1],
+                "ASSESS_TYPE": row[2],
+                "QUESTION_CD": row[3],
+                "QUESTION_NO": row[4],
+                "FILE_NAME": row[5],
+                "DURATION": row[6],
+                "RATE": row[7],
+                "FILE_SIZE": row[8]
+            }
+            for row in result
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"파일 목록 조회 실패: {str(e)}")
+
+
+@router.get("/assessments/{patient_id}/{order_num}/files/{question_cd}/download")
+def download_file(
+    patient_id: str, 
+    order_num: int, 
+    question_cd: str,
+    question_no: int,
+    convert_to_wav: bool = True,
+    db: Session = Depends(get_db)
+):
+    """
+    특정 파일을 blob에서 다운로드
+    
+    Args:
+        patient_id: 환자 ID
+        order_num: 검사 회차
+        question_cd: 문항 코드
+        question_no: 문항 번호
+        convert_to_wav: m4a를 wav로 변환 여부 (기본: True)
+    
+    Returns:
+        파일 바이너리 데이터 (wav 형식)
+    """
+    from fastapi.responses import Response
+    import tempfile
+    from pydub import AudioSegment
+    
+    try:
+        query = text("""
+            SELECT FILE_CONTENT, FILE_NAME
+            FROM assess_file_lst
+            WHERE PATIENT_ID = :patient_id
+              AND ORDER_NUM = :order_num
+              AND QUESTION_CD = :question_cd
+              AND QUESTION_NO = :question_no
+              AND USE_YN = 'Y'
+            LIMIT 1
+        """)
+        
+        result = db.execute(query, {
+            "patient_id": patient_id,
+            "order_num": order_num,
+            "question_cd": question_cd,
+            "question_no": question_no
+        }).fetchone()
+        
+        if not result:
+            raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+        
+        file_content, file_name = result
+        file_ext = os.path.splitext(file_name)[1].lower()
+        
+        # m4a이고 변환이 필요한 경우
+        if file_ext in ['.m4a', '.mp4', '.aac'] and convert_to_wav:
+            # 임시 파일로 저장
+            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
+            temp_input.write(file_content)
+            temp_input.close()
+            
+            try:
+                # m4a를 wav로 변환
+                audio = AudioSegment.from_file(temp_input.name, format='m4a')
+                audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
+                
+                # 임시 wav 파일 생성
+                temp_output = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+                temp_output.close()
+                
+                audio.export(temp_output.name, format='wav')
+                
+                # wav 파일 읽기
+                with open(temp_output.name, 'rb') as f:
+                    wav_content = f.read()
+                
+                # 변환된 파일명
+                base_name = os.path.splitext(file_name)[0]
+                output_filename = f"{base_name}.wav"
+                
+                return Response(
+                    content=wav_content,
+                    media_type="audio/wav",
+                    headers={
+                        "Content-Disposition": f"attachment; filename={output_filename}"
+                    }
+                )
+            finally:
+                # 임시 파일 삭제
+                try:
+                    os.unlink(temp_input.name)
+                    os.unlink(temp_output.name)
+                except:
+                    pass
+        else:
+            # wav 파일 또는 변환 불필요한 경우 그대로 반환
+            media_type = "audio/wav" if file_ext == '.wav' else "audio/mp4"
+            
+            return Response(
+                content=file_content,
+                media_type=media_type,
+                headers={
+                    "Content-Disposition": f"attachment; filename={file_name}"
+                }
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"파일 다운로드 실패: {str(e)}")
 
 
 @router.post("/assessments/{patient_id}/{order_num}/deduplicate")
 def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depends(get_db)):
     """중복 파일 처리 - QUESTION_MINOR_NO가 작은 것을 USE_YN='N'으로 설정"""
     try:
-        # Step 1: 중복 조건 확인
         check_query = text("""
             SELECT PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, COUNT(*) as cnt
             FROM assess_file_lst
@@ -217,7 +461,6 @@ def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depend
                 "deactivated_count": 0
             }
         
-        # Step 2: 중복된 레코드 중 QUESTION_MINOR_NO가 작은 것만 USE_YN='N'으로 업데이트
         update_query = text("""
             WITH ranked_records AS (
                 SELECT *,
@@ -270,7 +513,7 @@ def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depend
 
 @router.post("/assessments/{patient_id}/{order_num}/init-scores")
 def initialize_scores(patient_id: str, order_num: int, db: Session = Depends(get_db)):
-    """점수 테이블 초기화 - assess_file_lst의 데이터를 assess_score에 복사"""
+    """점수 테이블 초기화"""
     try:
         query = text("""
             INSERT INTO assess_score (
@@ -301,47 +544,6 @@ def initialize_scores(patient_id: str, order_num: int, db: Session = Depends(get
         raise HTTPException(status_code=500, detail=f"점수 테이블 초기화 실패: {str(e)}")
 
 
-@router.get("/assessments/{patient_id}/{order_num}/files")
-def get_assessment_files(patient_id: str, order_num: int, db: Session = Depends(get_db)):
-    """특정 검사의 파일 목록 조회"""
-    try:
-        query = text("""
-            SELECT 
-                A.PATIENT_ID, A.ORDER_NUM, A.ASSESS_TYPE, A.QUESTION_CD,
-                A.QUESTION_NO, A.MAIN_PATH, A.SUB_PATH, A.FILE_NAME
-            FROM assess_file_lst A
-            INNER JOIN code_mast C 
-              ON C.CODE_TYPE = 'ASSESS_TYPE' 
-             AND A.ASSESS_TYPE = C.MAST_CD 
-             AND A.QUESTION_CD = C.SUB_CD
-            WHERE A.PATIENT_ID = :patient_id 
-              AND A.ORDER_NUM = :order_num 
-              AND A.USE_YN = 'Y'
-            ORDER BY A.ASSESS_TYPE, C.ORDER_NUM, A.QUESTION_NO
-        """)
-        
-        result = db.execute(query, {
-            "patient_id": patient_id,
-            "order_num": order_num
-        }).fetchall()
-        
-        return [
-            {
-                "PATIENT_ID": row[0],
-                "ORDER_NUM": row[1],
-                "ASSESS_TYPE": row[2],
-                "QUESTION_CD": row[3],
-                "QUESTION_NO": row[4],
-                "MAIN_PATH": row[5],
-                "SUB_PATH": row[6],
-                "FILE_NAME": row[7]
-            }
-            for row in result
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"파일 목록 조회 실패: {str(e)}")
-
-
 @router.post("/scores/bulk")
 def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
     """점수 일괄 저장"""
@@ -349,9 +551,7 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
         if not data.scores:
             raise HTTPException(status_code=400, detail="저장할 점수 정보가 없습니다")
         
-        # 기존 점수 업데이트 (UPSERT 방식)
         for score in data.scores:
-            # 먼저 기존 데이터 확인
             check_query = text("""
                 SELECT COUNT(*) 
                 FROM assess_score
@@ -367,7 +567,6 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
             }).scalar()
             
             if exists:
-                # 업데이트
                 update_query = text("""
                     UPDATE assess_score
                     SET SCORE = :score,
@@ -384,7 +583,6 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
                     "question_cd": score.question_cd
                 })
             else:
-                # 삽입
                 insert_query = text("""
                     INSERT INTO assess_score (
                         PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD,

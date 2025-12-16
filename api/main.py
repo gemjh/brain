@@ -1,12 +1,10 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from typing import List
 from contextlib import asynccontextmanager
-import models
-from database import get_db
-from routers import patients, assessments, reports
-from routers import upload 
+
+from . import models
+from .database import get_db
+from .routers import patients, assessments, reports, upload
 
 
 # ============================================

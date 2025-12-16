@@ -117,6 +117,7 @@ def fetch_existing_path_info(patient_id: str):
             return None, None
         
         path_info = pd.DataFrame(files)
+        path_info.columns = [col.upper() for col in path_info.columns]
         return int(order_num), path_info
     except Exception as e:
         logging.error(f"기존 파일 정보 조회 실패: {e}")

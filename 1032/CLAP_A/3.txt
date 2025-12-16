@@ -1,0 +1,6 @@
+1 TypedValue{t=0x3/d=0x3a5 "res/drawable/clap_e_3_p_1_a.png" a=14 r=0x7f0800b8} 
+2 TypedValue{t=0x3/d=0x3aa "res/drawable/clap_e_3_p_2_c.png" a=14 r=0x7f0800bd} 
+3 TypedValue{t=0x3/d=0x3ab "res/drawable/clap_e_3_p_3_a.png" a=14 r=0x7f0800be} 
+4 TypedValue{t=0x3/d=0x3ae "res/drawable/clap_e_3_p_4_a.png" a=14 r=0x7f0800c1} 
+5 TypedValue{t=0x3/d=0x3b1 "res/drawable/clap_e_3_p_5_a.png" a=14 r=0x7f0800c4} 
+6 TypedValue{t=0x3/d=0x3b4 "res/drawable/clap_e_3_p_6_a.png" a=14 r=0x7f0800c7} 
