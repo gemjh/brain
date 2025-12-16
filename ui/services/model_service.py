@@ -85,7 +85,6 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
 
 
 def model_process(path_info):
-
     """
     모델링 프로세스 - DB blob에서 파일을 다운로드하여 처리
     

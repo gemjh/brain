@@ -199,6 +199,9 @@ class APIClient:
 def parse_csv_file(csv_path: str) -> dict:
     """CSV 파일 파싱"""
     df = pd.read_csv(csv_path)
+    pattern = r'^-?\d+(\.\d+)?'
+    """CSV 파일 파싱"""
+    df = pd.read_csv(csv_path)
     pattern = r'^-?\d+(\.\d+)?$'
     
     csv_data = {}
@@ -343,14 +346,15 @@ def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list
         if not os.path.isdir(clap_path):
             continue
         
-        clap_list = os.listdir(clap_path)
+        clap_list = os.listdir(clap_path)        
         code_dict = clap_A_cd if clap_type == 'CLAP_A' else clap_D_cd
         
         for clap_item in clap_list:
-            item_path = os.path.join(clap_path, clap_item)
-            if not os.path.isdir(item_path) or code_dict.get(clap_item) is None:
+
+            if not clap_item.startswith(str(patient_id)):
                 continue
             
+            item_path = os.path.join(clap_path,clap_item)
             sub_list = os.listdir(item_path)
             for filename in sub_list:
                 # p_로 시작하고 wav 또는 m4a 파일만 처리

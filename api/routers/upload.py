@@ -66,20 +66,6 @@ class ScoreBulk(BaseModel):
     scores: List[ScoreData]
 
 
-def generate_unique_assessment_key(patient_id: str, db: Session) -> str:
-    """Timestamp 기반 고유 검사 키 생성"""
-    while True:
-        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[:-3]
-        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
-        key = f"{timestamp}_{patient_id}_{random_part}"
-        exists = db.execute(
-            text("SELECT 1 FROM assess_lst WHERE ASSESS_KEY = :assessment_key LIMIT 1"),
-            {"assessment_key": key}
-        ).fetchone()
-        if not exists:
-            return key
-
-
 # ============================================
 # Endpoints
 # ============================================
@@ -103,7 +89,6 @@ def get_order_num(patient_id: str, db: Session = Depends(get_db)):
 def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(get_db)):
     """환자 검사 정보 저장"""
     try:
-        assessment_key = generate_unique_assessment_key(data.patient_id, db)
         params = {
             'patient_id': data.patient_id,
             'order_num': data.order_num,
@@ -121,7 +106,6 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
             'hemiplegia': data.hemiplegia,
             'hemineglect': data.hemineglect,
             'visual_field_defect': data.visual_field_defect,
-            'assessment_key': assessment_key
         }
         
         query = text("""
@@ -146,7 +130,6 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
             "message": f"환자 검사 정보 저장 완료: {data.patient_id}",
             "patient_id": data.patient_id,
             "order_num": data.order_num,
-            "assessment_key": assessment_key
         }
     except Exception as e:
         db.rollback()
@@ -155,14 +138,14 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
 
 @router.post("/assessments/files/upload")
 async def upload_files_with_metadata(
-    patient_id: str = Form(...),
-    order_num: int = Form(...),
-    assess_type: str = Form(...),
-    question_cd: str = Form(...),
-    question_no: int = Form(...),
-    question_minor_no: int = Form(...),
-    duration: float = Form(...),
-    rate: int = Form(...),
+    patient_id: str,
+    order_num: int,
+    assess_type: str,
+    question_cd: str,
+    question_no: int,
+    question_minor_no: int,
+    duration: float,
+    rate: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -376,6 +359,7 @@ def download_file(
     from pydub import AudioSegment
     
     try:
+        # 같은 question_cd 파일이 여러 개 있으면 minor_no이 가장 큰 한 파일만 가져옴
         query = text("""
             SELECT FILE_CONTENT, FILE_NAME
             FROM assess_file_lst
