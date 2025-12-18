@@ -25,7 +25,7 @@ def get_assessments(
                 COALESCE(p.name, '정보없음') as PATIENT_NAME,
                 lst.AGE, COALESCE(p.SEX, '0') as SEX, 
                 flst.ASSESS_TYPE, flst.MAIN_PATH, lst.ASSESS_DATE, 
-                lst.REQUEST_ORG, lst.ASSESS_PERSON
+                lst.REQUEST_ORG, lst.ASSESS_PERSON, lst.ASSESS_KEY
             FROM assess_lst lst
             LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
             INNER JOIN assess_file_lst flst 
@@ -55,7 +55,8 @@ def get_assessments(
                 "main_path": row[6],
                 "assess_date": str(row[7]) if row[7] else None,
                 "request_org": row[8],
-                "assess_person": row[9]
+                "assess_person": row[9],
+                "assessment_key": row[10]
             }
             for row in result
         ]

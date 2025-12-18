@@ -5,6 +5,9 @@ from typing import List, Optional
 from pydantic import BaseModel
 import sys
 import os
+import datetime
+import random
+import string
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
@@ -63,6 +66,20 @@ class ScoreBulk(BaseModel):
     scores: List[ScoreData]
 
 
+def generate_unique_assessment_key(patient_id: str, db: Session) -> str:
+    """Timestamp 기반 고유 검사 키 생성"""
+    while True:
+        timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S%f")[:-3]
+        random_part = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        key = f"{timestamp}_{patient_id}_{random_part}"
+        exists = db.execute(
+            text("SELECT 1 FROM assess_lst WHERE ASSESS_KEY = :assessment_key LIMIT 1"),
+            {"assessment_key": key}
+        ).fetchone()
+        if not exists:
+            return key
+
+
 # ============================================
 # Endpoints
 # ============================================
@@ -86,6 +103,7 @@ def get_order_num(patient_id: str, db: Session = Depends(get_db)):
 def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(get_db)):
     """환자 검사 정보 저장"""
     try:
+        assessment_key = generate_unique_assessment_key(data.patient_id, db)
         params = {
             'patient_id': data.patient_id,
             'order_num': data.order_num,
@@ -102,18 +120,21 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
             'lesion_location': data.lesion_location,
             'hemiplegia': data.hemiplegia,
             'hemineglect': data.hemineglect,
-            'visual_field_defect': data.visual_field_defect
+            'visual_field_defect': data.visual_field_defect,
+            'assessment_key': assessment_key
         }
         
         query = text("""
             INSERT INTO assess_lst (
                 PATIENT_ID, ORDER_NUM, REQUEST_ORG, ASSESS_DATE, ASSESS_PERSON,
                 AGE, EDU, EXCLUDED, POST_STROKE_DATE, DIAGNOSIS, DIAGNOSIS_ETC,
-                STROKE_TYPE, LESION_LOCATION, HEMIPLEGIA, HEMINEGLECT, VISUAL_FIELD_DEFECT
+                STROKE_TYPE, LESION_LOCATION, HEMIPLEGIA, HEMINEGLECT, VISUAL_FIELD_DEFECT,
+                ASSESS_KEY
             ) VALUES (
                 :patient_id, :order_num, :request_org, :assess_date, :assess_person,
                 :age, :edu, :excluded, :post_stroke_date, :diagnosis, :diagnosis_etc,
-                :stroke_type, :lesion_location, :hemiplegia, :hemineglect, :visual_field_defect
+                :stroke_type, :lesion_location, :hemiplegia, :hemineglect, :visual_field_defect,
+                :assessment_key
             )
         """)
         
@@ -124,7 +145,8 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
             "success": True,
             "message": f"환자 검사 정보 저장 완료: {data.patient_id}",
             "patient_id": data.patient_id,
-            "order_num": data.order_num
+            "order_num": data.order_num,
+            "assessment_key": assessment_key
         }
     except Exception as e:
         db.rollback()

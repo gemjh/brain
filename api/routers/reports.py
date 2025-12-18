@@ -37,7 +37,8 @@ def get_report(
                 lst.LESION_LOCATION,
                 lst.HEMIPLEGIA,
                 lst.HEMINEGLECT,
-                lst.VISUAL_FIELD_DEFECT
+                lst.VISUAL_FIELD_DEFECT,
+                lst.ASSESS_KEY
             FROM assess_lst lst
             LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
             WHERE lst.PATIENT_ID = :patient_id AND lst.ORDER_NUM = :order_num
@@ -83,7 +84,8 @@ def get_report(
                 "lesion_location": patient_info["LESION_LOCATION"],
                 "hemiplegia": patient_info["HEMIPLEGIA"],
                 "hemineglect": patient_info["HEMINEGLECT"],
-                "visual_field_defect": patient_info["VISUAL_FIELD_DEFECT"]
+                "visual_field_defect": patient_info["VISUAL_FIELD_DEFECT"],
+                "assessment_key": patient_info["ASSESS_KEY"]
             },
             "scores": {row[0]: float(row[1]) if row[1] else 0 for row in scores}
         }

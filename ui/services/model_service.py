@@ -142,8 +142,6 @@ def model_process(path_info):
                     ltn_rpt_files.append(file_info)
                 elif question_cd == 'GUESS_END':
                     guess_end_files.append(file_info)
-                    print('------------- path_info ----------------- ')
-                    print('guess_end_files',guess_end_files)
                 elif question_cd == 'SAY_OBJ':
                     say_obj_files.append(file_info)
                 elif question_cd == 'SAY_ANI':

@@ -229,6 +229,16 @@ def show_detail_common(patient_id):
     clap_type = st.session_state.selected_filter.replace('_','-')
     subtitle = '실어증' if st.session_state.selected_filter=='CLAP_A' else '마비말장애' if st.session_state.selected_filter=='CLAP_D' else '-'
 
+    # 환자의 최대 수행회차
+    max_order_num = st.session_state.order_num
+    try:
+        assessment_list = APIClient.get_assessments(patient_id)
+        if assessment_list:
+            max_order_num = max(int(item.get('order_num', 0) or 0) for item in assessment_list)
+    except Exception as e:
+        logging.warning(f"전체 수행회차 조회 실패: {e}")
+        max_order_num = st.session_state.order_num
+    
     # ============================================
     # 핵심 변경: get_db_modules() 제거 → API 호출
     # ============================================
@@ -323,7 +333,7 @@ def show_detail_common(patient_id):
                 <td style="border: 1px solid #ddd; padding: 10px; background-color: #f8f9fa; font-weight: bold;">발병일</td>
                 <td style="border: 1px solid #ddd; padding: 10px;">{post_stroke_date}</td>
                 <td style="border: 1px solid #ddd; padding: 10px; background-color: #f8f9fa; font-weight: bold;">실시 횟수</td>
-                <td style="border: 1px solid #ddd; padding: 10px;">{st.session_state.order_num}회</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">{max_order_num}회</td>
             </tr>
         </table>
 
