@@ -327,8 +327,19 @@ def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list
     """
     files_data = []
     
-    for clap_type in ['CLAP_A', 'CLAP_D']:
-        clap_path = os.path.join(target_path, clap_type)
+    folder_mapping = {
+        'CLAP_A': 'CLAP_A',
+        'CLAP_D': 'CLAP_D',
+        '12': 'CLAP_A',
+        '13': 'CLAP_D'
+    }
+    
+    for folder_name in os.listdir(target_path):
+        clap_type = folder_mapping.get(folder_name)
+        if not clap_type:
+            continue
+        
+        clap_path = os.path.join(target_path, folder_name)
         if not os.path.isdir(clap_path):
             continue
         
