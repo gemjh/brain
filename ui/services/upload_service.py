@@ -40,8 +40,7 @@ class APIClient:
         """환자의 수행회차 조회"""
         try:
             response = requests.get(
-                f"{API_BASE_URL}/patients/{patient_id}/order",
-                timeout=10
+                f"{API_BASE_URL}/patients/{patient_id}/order"
             )
             response.raise_for_status()
             return response.json().get('order_num', 1)
@@ -103,7 +102,7 @@ class APIClient:
                     f"{API_BASE_URL}/assessments/files/upload",
                     files=files,
                     data=data,
-                    timeout=60
+                    timeout=120
                 )
                 response.raise_for_status()
                 logger.info(f"파일 업로드 완료: {os.path.basename(file_path)}")
@@ -147,7 +146,7 @@ class APIClient:
                             f"{API_BASE_URL}/assessments/files/upload",
                             files=files,
                             data=data,
-                            timeout=60
+                            timeout=120
                         )
                         response.raise_for_status()
                         success_count += 1
@@ -200,9 +199,6 @@ class APIClient:
 def parse_csv_file(csv_path: str) -> dict:
     """CSV 파일 파싱"""
     df = pd.read_csv(csv_path)
-    pattern = r'^-?\d+(\.\d+)?'
-    """CSV 파일 파싱"""
-    df = pd.read_csv(csv_path)
     pattern = r'^-?\d+(\.\d+)?$'
     
     csv_data = {}
@@ -252,7 +248,6 @@ def parse_csv_file(csv_path: str) -> dict:
     
     return csv_data
 
-
 def convert_to_wav(file_path: str) -> str:
     """
     m4a 파일을 wav로 변환
@@ -288,7 +283,40 @@ def convert_to_wav(file_path: str) -> str:
         logger.error(f"파일 변환 실패 ({file_path}): {e}")
         raise
 
-
+def get_audio_info(file_path: str) -> Tuple[float, int]:
+    """
+    오디오 파일 정보 추출 (wav, m4a 모두 지원)
+    
+    Args:
+        file_path: 오디오 파일 경로
+    
+    Returns:
+        Tuple[duration, sample_rate]: 길이(초), 샘플링 레이트
+    """
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    try:
+        if file_ext == '.wav':
+            # WAV 파일 처리
+            with wave.open(file_path, 'rb') as wav_file:
+                frames = wav_file.getnframes()
+                rate = wav_file.getframerate()
+                duration = frames / float(rate)
+                return duration, rate
+        
+        elif file_ext in ['.m4a', '.mp4', '.aac']:
+            # M4A/AAC 파일 처리
+            audio = AudioSegment.from_file(file_path, format='m4a')
+            duration = len(audio) / 1000.0  # milliseconds to seconds
+            rate = audio.frame_rate
+            return duration, rate
+        
+        else:
+            raise ValueError(f"지원하지 않는 오디오 포맷: {file_ext}")
+    
+    except Exception as e:
+        logger.error(f"오디오 정보 추출 실패 ({file_path}): {e}")
+        raise
 
 def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list:
     """
@@ -300,61 +328,67 @@ def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list
     files_data = []
     
     for clap_type in ['CLAP_A', 'CLAP_D']:
-        clap_path = os.path.join(target_path, clap_type)     
+        clap_path = os.path.join(target_path, clap_type)
         if not os.path.isdir(clap_path):
             continue
         
-        clap_list = os.listdir(clap_path)        
+        clap_list = os.listdir(clap_path)
         code_dict = clap_A_cd if clap_type == 'CLAP_A' else clap_D_cd
         
         for clap_item in clap_list:
-
-            if not clap_item.startswith(str(patient_id)):
+            item_path = os.path.join(clap_path, clap_item)
+            if not os.path.isdir(item_path) or code_dict.get(clap_item) is None:
                 continue
-
-            if clap_item.split('.')[-1] not in ['wav', 'm4a', 'mp4', 'aac']:
-                continue
-            print('--------------------------',clap_item,'--------------------------',sep='\n\n\n')
-            try:
-                # 오디오 정보 추출
-                duration, rate = get_audio_info(os.path.join(clap_path,clap_item))
+            
+            sub_list = os.listdir(item_path)
+            for filename in sub_list:
+                # p_로 시작하고 wav 또는 m4a 파일만 처리
+                if not filename.startswith('p_'):
+                    continue
                 
-                # 파일명 파싱
-                base_name = os.path.splitext(clap_item)[0]
-                spl_item = base_name.split('_')
+                file_ext = os.path.splitext(filename)[1].lower()
+                if file_ext not in ['.wav', '.m4a', '.mp4', '.aac']:
+                    continue
+                
+                file_path = os.path.join(item_path, filename)
+                
                 try:
+                    # 오디오 정보 추출
+                    duration, rate = get_audio_info(file_path)
+                    
+                    # 파일명 파싱
+                    base_name = os.path.splitext(filename)[0]
+                    spl_item = base_name.split('_')
                     question_no = int(spl_item[1])
                     question_minor_no = int(spl_item[2][0]) if len(spl_item) > 2 else 0
                     
                     # QUESTION_CD 결정
-                    if clap_type == 'CLAP_D':
+                    if clap_type == 'CLAP_D' and clap_item == '1':
                         pkt_idx = int((question_no + 2) / 3)
                         question_cd = clap_D_pkt_cd.get(pkt_idx)
                     else:
                         question_cd = code_dict.get(clap_item)
-                except:
-                    question_no, question_minor_no, question_cd = 0,0,0
                     
-                files_data.append({
-                    'file_path': target_path,
-                    'original_filename': clap_item,
-                    'needs_conversion': clap_item != '.wav',
-                    'metadata': {
-                        'patient_id': patient_id,
-                        'order_num': order_num,
-                        'assess_type': clap_type,
-                        'question_cd': question_cd,
-                        'question_no': question_no,
-                        'question_minor_no': question_minor_no,
-                        'duration': round(duration, 2),
-                        'rate': rate
-                    }
-                })
-                
-            except Exception as e:
-                logger.warning(f"파일 처리 실패 (건너뜀): {clap_item}, {e}")
-                continue
-
+                    files_data.append({
+                        'file_path': file_path,
+                        'original_filename': filename,
+                        'needs_conversion': file_ext != '.wav',
+                        'metadata': {
+                            'patient_id': patient_id,
+                            'order_num': order_num,
+                            'assess_type': clap_type,
+                            'question_cd': question_cd,
+                            'question_no': question_no,
+                            'question_minor_no': question_minor_no,
+                            'duration': round(duration, 2),
+                            'rate': rate
+                        }
+                    })
+                    
+                except Exception as e:
+                    logger.warning(f"파일 처리 실패 (건너뜀): {filename}, {e}")
+                    continue
+    
     return files_data
 
 
@@ -481,38 +515,4 @@ def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optiona
         except Exception as e:
             logger.warning(f"임시 폴더 정리 실패: {e}")
 
-
-def get_audio_info(file_path: str) -> Tuple[float, int]:
-    """
-    오디오 파일 정보 추출 (wav, m4a 모두 지원)
     
-    Args:
-        file_path: 오디오 파일 경로
-    
-    Returns:
-        Tuple[duration, sample_rate]: 길이(초), 샘플링 레이트
-    """
-    file_ext = os.path.splitext(file_path)[1].lower()
-    
-    try:
-        if file_ext == '.wav':
-            # WAV 파일 처리
-            with wave.open(file_path, 'rb') as wav_file:
-                frames = wav_file.getnframes()
-                rate = wav_file.getframerate()
-                duration = frames / float(rate)
-                return duration, rate
-        
-        elif file_ext in ['.m4a', '.mp4', '.aac']:
-            # M4A/AAC 파일 처리
-            audio = AudioSegment.from_file(file_path, format='m4a')
-            duration = len(audio) / 1000.0  # milliseconds to seconds
-            rate = audio.frame_rate
-            return duration, rate
-        
-        else:
-            raise ValueError(f"지원하지 않는 오디오 포맷: {file_ext}")
-    
-    except Exception as e:
-        logger.error(f"오디오 정보 추출 실패 ({file_path}): {e}")
-        raise

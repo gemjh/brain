@@ -3,6 +3,7 @@ import tempfile
 import os
 import requests
 import logging
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
             'convert_to_wav': True  # 항상 wav로 변환하여 받기
         }
         
-        response = requests.get(url, params=params, timeout=60)
+        response = requests.get(url, params=params, timeout=120)
         response.raise_for_status()
         
         # 임시 파일 생성 (항상 .wav)
@@ -84,6 +85,7 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
 
 
 def model_process(path_info):
+
     """
     모델링 프로세스 - DB blob에서 파일을 다운로드하여 처리
     
@@ -94,6 +96,18 @@ def model_process(path_info):
         dict: 모델링 결과 {'LTN_RPT': 10, 'GUESS_END': 5, ...}
     """
     try:
+        # 같은 문항에 여러 파일이 있는 경우 question_minor_no가 가장 큰 것만 유지
+        group_cols = ['patient_id', 'order_num', 'assess_type', 'question_cd', 'question_no']
+        if 'question_minor_no' in path_info.columns:
+            try:
+                path_info['question_minor_no'] = path_info['question_minor_no'].astype(int)
+            except Exception:
+                path_info['question_minor_no'] = pd.to_numeric(path_info['question_minor_no'], errors='coerce').fillna(0).astype(int)
+            dedup_idx = path_info.groupby(group_cols)['question_minor_no'].idxmax()
+            path_info = path_info.loc[dedup_idx].reset_index(drop=True)
+        else:
+            path_info = path_info.drop_duplicates(subset=group_cols, keep='last').reset_index(drop=True)
+
         # 임시 파일 관리용 리스트
         temp_files = []
         
@@ -109,11 +123,11 @@ def model_process(path_info):
         
         # path_info에서 파일 정보 추출
         for i in range(len(path_info)):
-            patient_id = str(path_info.loc[i, 'PATIENT_ID'])
-            order_num = int(path_info.loc[i, 'ORDER_NUM'])
-            assess_type = str(path_info.loc[i, 'ASSESS_TYPE'])
-            question_cd = str(path_info.loc[i, 'QUESTION_CD'])
-            question_no = int(path_info.loc[i, 'QUESTION_NO'])
+            patient_id = str(path_info.loc[i, 'patient_id'])
+            order_num = int(path_info.loc[i, 'order_num'])
+            assess_type = str(path_info.loc[i, 'assess_type'])
+            question_cd = str(path_info.loc[i, 'question_cd'])
+            question_no = int(path_info.loc[i, 'question_no'])
             
             file_info = {
                 'patient_id': patient_id,
@@ -128,6 +142,8 @@ def model_process(path_info):
                     ltn_rpt_files.append(file_info)
                 elif question_cd == 'GUESS_END':
                     guess_end_files.append(file_info)
+                    print('------------- path_info ----------------- ')
+                    print('guess_end_files',guess_end_files)
                 elif question_cd == 'SAY_OBJ':
                     say_obj_files.append(file_info)
                 elif question_cd == 'SAY_ANI':
@@ -296,13 +312,16 @@ def model_process(path_info):
             start_time = time.time()
             try:
                 talk_clean = get_talk_clean()
-                file_paths = []
+                file_items = []
                 for file_info in talk_clean_files:
                     temp_path = download_file_from_db(**file_info)
-                    file_paths.append(temp_path)
+                    file_items.append({
+                        "path": temp_path,
+                        "question_no": file_info['question_no']
+                    })
                     temp_files.append(temp_path)
                 
-                talk_clean_result = talk_clean.main(file_paths)
+                talk_clean_result = talk_clean.main(file_items)
                 fin_scores['TALK_CLEAN'] = int(talk_clean_result)
                 logger.info(f"TALK_CLEAN 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:

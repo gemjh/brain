@@ -236,9 +236,6 @@ def show_detail_common(patient_id):
         # API를 통한 리포트 데이터 조회
         report_data = APIClient.get_report(patient_id, st.session_state.order_num)
         patient_info = report_data.get('patient_info', {})
-        print('-----------------------------\n\n\n')
-        print(patient_info)
-        print('\n\n\n-----------------------------')
         
         # 기본값 설정
         request_org = patient_info.get('request_org', '-')
@@ -326,7 +323,7 @@ def show_detail_common(patient_id):
                 <td style="border: 1px solid #ddd; padding: 10px; background-color: #f8f9fa; font-weight: bold;">발병일</td>
                 <td style="border: 1px solid #ddd; padding: 10px;">{post_stroke_date}</td>
                 <td style="border: 1px solid #ddd; padding: 10px; background-color: #f8f9fa; font-weight: bold;">실시 횟수</td>
-                <td style="border: 1px solid #ddd; padding: 10px;">N회</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">{st.session_state.order_num}회</td>
             </tr>
         </table>
 

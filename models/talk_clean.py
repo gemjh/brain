@@ -95,14 +95,19 @@ score = {'1':3, '2':2, '3':1, '4':2, '5':2, '6':3, '7':2, '8':2, '9':2, '10':3,
          '11':2, '12':1, '13':3, '14':2, '15':2, '16':2, '17':2, '18':1, '19':2, '20':3,
          '21':3, '22':3, '23':1, '24':1, '25':2}
 
-def main(wav_path):
+def main(wav_items):
+  """
+  wav_items: [{'path': str, 'question_no': int}, ...]
+  """
   total_score = 0
-  for path in wav_path:
-    if "p_" in path:
-      num = path.split('p_')[1].split('_')[0]
-      sub_x_data = sub_x_dict[int(num)-1]
+  for item in wav_items:
+    path = item['path']
+    question_no = int(item['question_no'])
+    if 1 <= question_no <= 25:
+      sub_x_data = sub_x_dict[question_no-1]
+      num = str(question_no)
     else:
-      return f"파일 Path가 올바르지 않습니다. (path: {path})"
+      return f"문항 번호가 올바르지 않습니다. (question_no: {question_no})"
   
     # 모델 로드 - name_scope 스택 오류 방지를 위한 세션 초기화 추가 - 2025.08.26
     tf.keras.backend.clear_session()

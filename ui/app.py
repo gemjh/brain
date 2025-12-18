@@ -231,7 +231,9 @@ def loading(btn_apply,patient_id,uploaded_file):
     order_num,path_info=zip_upload(btn_apply,patient_id,uploaded_file)
 
     # ------------- 모델 인스턴스 -----------------              
+
     fin_scores=model_process(path_info)
+    # print('------------- path_info ----------------- ')
 
     # ------------- 결과 DB 저장 -----------------
     try:

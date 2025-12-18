@@ -123,7 +123,9 @@ def _load_model(model_path=MODEL_PATH):
 # =========================================================
 def predict_guess_end_score(wav_path: str, prompt_id: int, model_path: str = MODEL_PATH, return_probs: bool = False):
     if not (0 <= int(prompt_id) <= 4):
-        raise ValueError(f"prompt_id must be in 0..4, got {prompt_id}") 
+        # raise ValueError(f"prompt_id must be in 0..4, got {prompt_id}") 
+        print(f"GUESS_END : prompt_id must be in 0..4, got {prompt_id}") 
+        pass
 
     model = _load_model(model_path)
 

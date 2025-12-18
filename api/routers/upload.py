@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -133,14 +133,14 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
 
 @router.post("/assessments/files/upload")
 async def upload_files_with_metadata(
-    patient_id: str,
-    order_num: int,
-    assess_type: str,
-    question_cd: str,
-    question_no: int,
-    question_minor_no: int,
-    duration: float,
-    rate: int,
+    patient_id: str = Form(...),
+    order_num: int = Form(...),
+    assess_type: str = Form(...),
+    question_cd: str = Form(...),
+    question_no: int = Form(...),
+    question_minor_no: int = Form(...),
+    duration: float = Form(...),
+    rate: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -362,6 +362,7 @@ def download_file(
               AND QUESTION_CD = :question_cd
               AND QUESTION_NO = :question_no
               AND USE_YN = 'Y'
+            ORDER BY QUESTION_MINOR_NO DESC, CREATE_DATE DESC
             LIMIT 1
         """)
         
@@ -466,7 +467,7 @@ def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depend
                 SELECT *,
                     ROW_NUMBER() OVER (
                         PARTITION BY PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-                        ORDER BY QUESTION_MINOR_NO ASC
+                        ORDER BY QUESTION_MINOR_NO ASC, CREATE_DATE ASC
                     ) AS rn
                 FROM assess_file_lst
                 WHERE PATIENT_ID = :patient_id 

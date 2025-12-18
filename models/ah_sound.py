@@ -61,6 +61,7 @@ def estimate_pitch_spice_only(audio, sr=16000):
     try:
         print("SPICE 모델 로딩 중...")
         tf.keras.backend.clear_session()
+        clear_tfhub_cache()
         
         with tf.device('/CPU:0'):
             model = hub.load("https://tfhub.dev/google/spice/2")
@@ -176,4 +177,3 @@ def analyze_pitch_stability(filepath, std_threshold=.5, confidence_threshold=0.1
     except Exception as e:
         print(f"분석 실패: {e}")
         raise e
-
