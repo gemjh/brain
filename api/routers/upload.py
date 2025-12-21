@@ -40,6 +40,15 @@ def require_api_key_for_patient(
         raise HTTPException(status_code=401, detail="유효하지 않은 API Key")
     return api_key
 
+
+@router.get("/keys/{api_key}/patient")
+def resolve_api_key(api_key: str):
+    """API Key로 매핑된 환자 ID 조회"""
+    patient_id = valid_api_keys.get(api_key)
+    if not patient_id:
+        raise HTTPException(status_code=404, detail="해당 API Key를 찾을 수 없습니다")
+    return {"patient_id": patient_id}
+
 # ============================================
 # Request Models
 # ============================================

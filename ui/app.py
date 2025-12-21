@@ -8,6 +8,7 @@ st.set_page_config(
 )
 import os
 import logging
+from typing import Optional
 # TensorFlow 설정 (import 전에 먼저 설정)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_NUM_INTEROP_THREADS'] = '1'
@@ -97,10 +98,10 @@ except ImportError as e:
 spinner.__exit__(None, None, None)
 
 
-def fetch_existing_path_info(patient_id: str):
+def fetch_existing_path_info(patient_id: str, api_key: Optional[str] = None):
     """기존 업로드 데이터의 파일 정보를 DB에서 조회"""
     try:
-        assessments = APIClient.get_assessments(patient_id)
+        assessments = APIClient.get_assessments(patient_id, api_key=api_key)
         if not assessments:
             return None, None
         
@@ -112,7 +113,7 @@ def fetch_existing_path_info(patient_id: str):
         if not order_num:
             return None, None
         
-        files = APIClient.get_assessment_files(patient_id, int(order_num))
+        files = APIClient.get_assessment_files(patient_id, int(order_num), api_key=api_key)
         if not files:
             return None, None
         
@@ -167,20 +168,27 @@ def main():
             st.session_state.patient_id=patient_id
 
             uploaded_file = st.file_uploader("폴더를 압축(zip)한 파일을 업로드하세요.", type=['zip'])
+            api_key_input = st.text_input("이미 발급받은 API Key가 있다면 입력하세요 (업로드 스킵용)", value=st.session_state.get('api_key') or "")
             skip_upload = st.button("업로드 스킵", key="skip_btn")
             if skip_upload:
-                if st.session_state.get('patient_id'):
-                    order_num, path_info = fetch_existing_path_info(st.session_state.patient_id)
-                    print(st.session_state.patient_id)
-                    if path_info is None or path_info.empty:
-                        st.warning("DB에서 파일 정보를 찾을 수 없습니다.")
-                    else:
-                        st.session_state.path_info = path_info
-                        st.session_state.order_num = order_num
-                        st.session_state.upload_completed = True
-                        st.rerun()
+                if api_key_input:
+                    try:
+                        resolved = APIClient.resolve_api_key(api_key_input)
+                        patient_id_resolved = resolved.get("patient_id")
+                        st.session_state.patient_id = patient_id_resolved
+                        st.session_state.api_key = api_key_input
+                        order_num, path_info = fetch_existing_path_info(patient_id_resolved, api_key=api_key_input)
+                        if path_info is None or path_info.empty:
+                            st.warning("DB에서 파일 정보를 찾을 수 없습니다.")
+                        else:
+                            st.session_state.path_info = path_info
+                            st.session_state.order_num = order_num
+                            st.session_state.upload_completed = True
+                            st.rerun()
+                    except Exception as e:
+                        st.warning(f"API Key 확인 실패: {e}")
                 else:
-                    st.warning("환자 ID를 먼저 선택하세요.")
+                    st.warning("API Key를 입력하세요.")
             col1, col2 = st.columns([2.5, 7.5])
             with col1:
                 # zip파일이 등록되면 파일 업로드 버튼 보임

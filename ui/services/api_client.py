@@ -66,13 +66,15 @@ class APIClient:
     # 검사 관련
     # ============================================
     @staticmethod
-    def get_assessments(patient_id: str, assess_type: Optional[str] = None) -> List[Dict]:
+    def get_assessments(patient_id: str, assess_type: Optional[str] = None, api_key: Optional[str] = None) -> List[Dict]:
         """검사 목록 조회"""
         params = {"assess_type": assess_type} if assess_type else {}
+        headers = {"X-API-KEY": api_key} if api_key else None
         return APIClient._make_request(
             "GET", 
             f"/assessments/{patient_id}",
-            params=params
+            params=params,
+            headers=headers
         )
     
     @staticmethod
@@ -90,11 +92,13 @@ class APIClient:
         )
     
     @staticmethod
-    def get_assessment_files(patient_id: str, order_num: int) -> List[Dict]:
+    def get_assessment_files(patient_id: str, order_num: int, api_key: Optional[str] = None) -> List[Dict]:
         """검사 파일 메타데이터 조회"""
+        headers = {"X-API-KEY": api_key} if api_key else None
         return APIClient._make_request(
             "GET",
-            f"/assessments/{patient_id}/{order_num}/files"
+            f"/assessments/{patient_id}/{order_num}/files",
+            headers=headers
         )
     
     # ============================================
@@ -138,11 +142,13 @@ class APIClient:
     # 리포트 관련
     # ============================================
     @staticmethod
-    def get_report(patient_id: str, order_num: int) -> Dict:
+    def get_report(patient_id: str, order_num: int, api_key: Optional[str] = None) -> Dict:
         """리포트 조회"""
+        headers = {"X-API-KEY": api_key} if api_key else None
         return APIClient._make_request(
             "GET",
-            f"/reports/{patient_id}/{order_num}"
+            f"/reports/{patient_id}/{order_num}",
+            headers=headers
         )
     
     # ============================================
@@ -172,4 +178,12 @@ class APIClient:
         except Exception as e:
             logger.error(f"파일 업로드 실패: {e}")
             raise
+
+    # ============================================
+    # API Key 관련
+    # ============================================
+    @staticmethod
+    def resolve_api_key(api_key: str) -> Dict:
+        """API Key로 환자 ID 조회"""
+        return APIClient._make_request("GET", f"/keys/{api_key}/patient")
     
