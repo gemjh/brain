@@ -39,11 +39,9 @@ CREATE TABLE `assess_lst` (
   `HEMIPLEGIA` varchar(5) DEFAULT NULL,
   `HEMINEGLECT` varchar(5) DEFAULT NULL,
   `VISUAL_FIELD_DEFECT` varchar(5) DEFAULT NULL,
-  `ASSESS_KEY` varchar(100) DEFAULT NULL,
   `CREATE_DATE` datetime DEFAULT CURRENT_TIMESTAMP,
   `UPDATE_DATE` datetime DEFAULT NULL,
-  PRIMARY KEY (`PATIENT_ID`,`ORDER_NUM`),
-  UNIQUE KEY `idx_assess_key` (`ASSESS_KEY`)
+  PRIMARY KEY (`PATIENT_ID`,`ORDER_NUM`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='평가 목록';
 /*!40101 SET character_set_client = @saved_cs_client */;
 

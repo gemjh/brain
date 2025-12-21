@@ -25,7 +25,7 @@ def get_assessments(
                 COALESCE(p.name, '정보없음') as PATIENT_NAME,
                 lst.AGE, COALESCE(p.SEX, '0') as SEX, 
                 flst.ASSESS_TYPE, flst.MAIN_PATH, lst.ASSESS_DATE, 
-                lst.REQUEST_ORG, lst.ASSESS_PERSON, lst.ASSESS_KEY
+                lst.REQUEST_ORG, lst.ASSESS_PERSON
             FROM assess_lst lst
             LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
             INNER JOIN assess_file_lst flst 
@@ -42,21 +42,20 @@ def get_assessments(
             params["assess_type"] = assess_type
         
         cursor = db.execute(text(base_query), params)
-        result = cursor.fetchall()
+        result = cursor.mappings().fetchall()
         
         return [
             {
-                "order_num": row[0],
-                "patient_id": row[1],
-                "patient_name": row[2],
-                "age": row[3],
-                "sex": row[4],
-                "assess_type": row[5],
-                "main_path": row[6],
-                "assess_date": str(row[7]) if row[7] else None,
-                "request_org": row[8],
-                "assess_person": row[9],
-                "assessment_key": row[10]
+                "order_num": row["ORDER_NUM"],
+                "patient_id": row["PATIENT_ID"],
+                "patient_name": row["PATIENT_NAME"],
+                "age": row["AGE"],
+                "sex": row["SEX"],
+                "assess_type": row["ASSESS_TYPE"],
+                "main_path": row["MAIN_PATH"],
+                "assess_date": str(row["ASSESS_DATE"]) if row["ASSESS_DATE"] else None,
+                "request_org": row["REQUEST_ORG"],
+                "assess_person": row["ASSESS_PERSON"]
             }
             for row in result
         ]

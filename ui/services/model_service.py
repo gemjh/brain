@@ -41,7 +41,7 @@ def get_guess_end():
     return guess_end
 
 
-def download_file_from_db(patient_id: str, order_num: int, question_cd: str, question_no: int) -> str:
+def download_file_from_db(patient_id: str, order_num: int, question_cd: str, question_no: int, api_key: str = None) -> str:
     """
     DB에서 blob 파일을 다운로드하여 임시 파일로 저장
     m4a 파일은 자동으로 wav로 변환됨
@@ -69,7 +69,8 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
             'convert_to_wav': True  # 항상 wav로 변환하여 받기
         }
         
-        response = requests.get(url, params=params, timeout=120)
+        headers = {"X-API-KEY": api_key} if api_key else None
+        response = requests.get(url, params=params, headers=headers, timeout=120)
         response.raise_for_status()
         
         # 임시 파일 생성 (항상 .wav)
@@ -84,7 +85,7 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
         raise
 
 
-def model_process(path_info):
+def model_process(path_info, api_key=None):
     """
     모델링 프로세스 - DB blob에서 파일을 다운로드하여 처리
     
@@ -168,7 +169,7 @@ def model_process(path_info):
                 # 파일 다운로드
                 file_paths = []
                 for file_info in ltn_rpt_files:
-                    temp_path = download_file_from_db(**file_info)
+                    temp_path = download_file_from_db(api_key=api_key, **file_info)
                     file_paths.append(temp_path)
                     temp_files.append(temp_path)
                 
@@ -186,7 +187,7 @@ def model_process(path_info):
                 guess_end = get_guess_end()
                 temp = []
                 for idx, file_info in enumerate(guess_end_files):
-                    temp_path = download_file_from_db(**file_info)
+                    temp_path = download_file_from_db(api_key=api_key, **file_info)
                     temp_files.append(temp_path)
                     temp.append(guess_end.predict_guess_end_score(temp_path, idx))
                 
@@ -205,7 +206,7 @@ def model_process(path_info):
                 # 6번째(rainbow), 9번째(swing) 파일 찾기
                 file_paths = []
                 for file_info in say_obj_files:
-                    temp_path = download_file_from_db(**file_info)
+                    temp_path = download_file_from_db(api_key=api_key, **file_info)
                     file_paths.append(temp_path)
                     temp_files.append(temp_path)
                 
@@ -224,7 +225,7 @@ def model_process(path_info):
             start_time = time.time()
             try:
                 say_ani = get_say_ani()
-                temp_path = download_file_from_db(**say_ani_files[0])
+                temp_path = download_file_from_db(api_key=api_key, **say_ani_files[0])
                 temp_files.append(temp_path)
                 
                 say_ani_result = say_ani.score_audio(temp_path)
@@ -239,7 +240,7 @@ def model_process(path_info):
             start_time = time.time()
             try:
                 talk_pic = get_talk_pic()
-                temp_path = download_file_from_db(**talk_pic_files[0])
+                temp_path = download_file_from_db(api_key=api_key, **talk_pic_files[0])
                 temp_files.append(temp_path)
                 
                 talk_pic_result = talk_pic.score_audio(temp_path)
@@ -254,7 +255,7 @@ def model_process(path_info):
             start_time = time.time()
             try:
                 ah_sound = get_ah_sound()
-                temp_path = download_file_from_db(**ah_sound_files[0])
+                temp_path = download_file_from_db(api_key=api_key, **ah_sound_files[0])
                 temp_files.append(temp_path)
                 
                 ah_sound_result = round(ah_sound.analyze_pitch_stability(temp_path), 2)
@@ -273,7 +274,7 @@ def model_process(path_info):
                 
                 file_paths = []
                 for file_info in ptk_sound_files:
-                    temp_path = download_file_from_db(**file_info)
+                    temp_path = download_file_from_db(api_key=api_key, **file_info)
                     file_paths.append(temp_path)
                     temp_files.append(temp_path)
                 
@@ -311,7 +312,7 @@ def model_process(path_info):
                 talk_clean = get_talk_clean()
                 file_items = []
                 for file_info in talk_clean_files:
-                    temp_path = download_file_from_db(**file_info)
+                    temp_path = download_file_from_db(api_key=api_key, **file_info)
                     file_items.append({
                         "path": temp_path,
                         "question_no": file_info['question_no']

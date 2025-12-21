@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Header, Query, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel
 import sys
 import os
@@ -15,6 +15,30 @@ from ..database import get_db
 
 router = APIRouter()
 
+# 간단한 API Key 저장소 (프로세스 메모리): key -> patient_id
+valid_api_keys: Dict[str, str] = {}
+
+
+def issue_api_key(patient_id: str) -> str:
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S%f")
+    rand = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    key = f"{now}-{rand}"
+    valid_api_keys[key] = patient_id
+    return key
+
+
+def require_api_key_for_patient(
+    patient_id: str,
+    key: Optional[str] = Query(None),
+    header_key: Optional[str] = Header(None, alias="X-API-KEY")
+):
+    api_key = header_key or key
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API Key가 필요합니다")
+    mapped = valid_api_keys.get(api_key)
+    if mapped != patient_id:
+        raise HTTPException(status_code=401, detail="유효하지 않은 API Key")
+    return api_key
 
 # ============================================
 # Request Models
@@ -70,8 +94,19 @@ class ScoreBulk(BaseModel):
 # Endpoints
 # ============================================
 
+@router.get("/keys/generate")
+def generate_client_key():
+    """
+    클라이언트에서 API 접근 시 사용할 고유 키 생성
+    - UTC 타임스탬프(마이크로초) + 랜덤 6자리 영숫자 조합
+    """
+    return {"detail": "키 발급은 업로드 시 자동 생성됩니다."}
+
 @router.get("/patients/{patient_id}/order")
-def get_order_num(patient_id: str, db: Session = Depends(get_db)):
+def get_order_num(
+    patient_id: str,
+    db: Session = Depends(get_db),
+):
     """환자의 수행회차 조회"""
     try:
         query = text("""
@@ -86,7 +121,13 @@ def get_order_num(patient_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/assessments/patient-info")
-def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(get_db)):
+def save_patient_assessment(
+    data: PatientAssessmentInfo,
+    db: Session = Depends(get_db),
+    api_key: Optional[str] = Depends(
+        lambda: None  # patient-info 저장은 키가 없어도 진행 (초기 업로드)
+    )
+):
     """환자 검사 정보 저장"""
     try:
         params = {
@@ -112,13 +153,11 @@ def save_patient_assessment(data: PatientAssessmentInfo, db: Session = Depends(g
             INSERT INTO assess_lst (
                 PATIENT_ID, ORDER_NUM, REQUEST_ORG, ASSESS_DATE, ASSESS_PERSON,
                 AGE, EDU, EXCLUDED, POST_STROKE_DATE, DIAGNOSIS, DIAGNOSIS_ETC,
-                STROKE_TYPE, LESION_LOCATION, HEMIPLEGIA, HEMINEGLECT, VISUAL_FIELD_DEFECT,
-                ASSESS_KEY
+                STROKE_TYPE, LESION_LOCATION, HEMIPLEGIA, HEMINEGLECT, VISUAL_FIELD_DEFECT
             ) VALUES (
                 :patient_id, :order_num, :request_org, :assess_date, :assess_person,
                 :age, :edu, :excluded, :post_stroke_date, :diagnosis, :diagnosis_etc,
-                :stroke_type, :lesion_location, :hemiplegia, :hemineglect, :visual_field_defect,
-                :assessment_key
+                :stroke_type, :lesion_location, :hemiplegia, :hemineglect, :visual_field_defect
             )
         """)
         
@@ -147,7 +186,7 @@ async def upload_files_with_metadata(
     duration: float,
     rate: int,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     파일을 blob으로 저장 (단일 파일)
@@ -165,6 +204,9 @@ async def upload_files_with_metadata(
         file: 업로드 파일 (wav, m4a 등)
     """
     try:
+        # 업로드 시에는 인증 요구하지 않고 키를 새로 발급
+        api_key = issue_api_key(patient_id)
+
         # 파일 읽기
         file_content = await file.read()
         
@@ -208,7 +250,8 @@ async def upload_files_with_metadata(
             "success": True,
             "message": f"파일 저장 완료: {file.filename}",
             "file_size": len(file_content),
-            "file_type": file_ext
+            "file_type": file_ext,
+            "api_key": api_key
         }
     except Exception as e:
         db.rollback()
@@ -219,7 +262,7 @@ async def upload_files_with_metadata(
 async def upload_files_bulk(
     files: List[UploadFile] = File(...),
     metadata: str = None,  # JSON 문자열로 메타데이터 전달
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     여러 파일을 한번에 blob으로 저장
@@ -240,9 +283,15 @@ async def upload_files_bulk(
                 detail="파일 개수와 메타데이터 개수가 일치하지 않습니다"
             )
         
+        api_key: Optional[str] = None
         saved_files = []
         
         for file, meta in zip(files, metadata_list):
+            # 업로드 시 인증 요구하지 않음, 첫 파일 기준으로 키 발급
+            patient_id = meta['patient_id']
+            if api_key is None:
+                api_key = issue_api_key(patient_id)
+
             file_content = await file.read()
             
             query = text("""
@@ -280,7 +329,8 @@ async def upload_files_bulk(
         return {
             "success": True,
             "message": f"{len(saved_files)}개 파일 저장 완료",
-            "files": saved_files
+            "files": saved_files,
+            "api_key": api_key
         }
     except Exception as e:
         db.rollback()
@@ -288,7 +338,12 @@ async def upload_files_bulk(
 
 
 @router.get("/assessments/{patient_id}/{order_num}/files")
-def get_assessment_files(patient_id: str, order_num: int, db: Session = Depends(get_db)):
+def get_assessment_files(
+    patient_id: str,
+    order_num: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key_for_patient)
+):
     """
     특정 검사의 파일 목록 조회 (메타데이터만, blob 제외)
     """
@@ -339,7 +394,8 @@ def download_file(
     question_cd: str,
     question_no: int,
     convert_to_wav: bool = True,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key_for_patient)
 ):
     """
     특정 파일을 blob에서 다운로드
@@ -443,7 +499,12 @@ def download_file(
 
 
 @router.post("/assessments/{patient_id}/{order_num}/deduplicate")
-def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depends(get_db)):
+def handle_duplicate_files(
+    patient_id: str,
+    order_num: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key_for_patient)
+):
     """중복 파일 처리 - QUESTION_MINOR_NO가 작은 것을 USE_YN='N'으로 설정"""
     try:
         check_query = text("""
@@ -518,8 +579,47 @@ def handle_duplicate_files(patient_id: str, order_num: int, db: Session = Depend
         raise HTTPException(status_code=500, detail=f"중복 파일 처리 실패: {str(e)}")
 
 
+@router.delete("/assessments/{patient_id}/{order_num}")
+def delete_assessment(
+    patient_id: str,
+    order_num: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key_for_patient)
+):
+    """업로드 실패 시 해당 환자/회차 데이터 롤백용"""
+    try:
+        params = {"patient_id": patient_id, "order_num": order_num}
+        file_result = db.execute(
+            text("DELETE FROM assess_file_lst WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            params
+        )
+        score_result = db.execute(
+            text("DELETE FROM assess_score_t WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            params
+        )
+        lst_result = db.execute(
+            text("DELETE FROM assess_lst WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            params
+        )
+        db.commit()
+        return {
+            "success": True,
+            "deleted_files": file_result.rowcount,
+            "deleted_scores": score_result.rowcount,
+            "deleted_assess": lst_result.rowcount
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"데이터 롤백 실패: {str(e)}")
+
+
 @router.post("/assessments/{patient_id}/{order_num}/init-scores")
-def initialize_scores(patient_id: str, order_num: int, db: Session = Depends(get_db)):
+def initialize_scores(
+    patient_id: str,
+    order_num: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_api_key_for_patient)
+):
     """점수 테이블 초기화"""
     try:
         query = text("""

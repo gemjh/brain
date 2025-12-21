@@ -142,12 +142,16 @@ def main():
         st.session_state.current_page = "리포트"
         st.session_state.view_mode = "list"
         st.session_state.upload_completed=False
+        st.session_state.api_key = None
+        st.session_state.order_num = None
 
     # 첫화면: 로그인화면 / 환자정보등록화면
     if not st.session_state.logged_in:
         show_login_page()
     # 파일이 등록된 경우
     elif st.session_state.upload_completed:
+        if st.session_state.get('api_key'):
+            st.info(f"이 세션의 API Key: `{st.session_state.api_key}`")
         # 리포트 메인 이동
         show_main_interface(st.session_state.patient_id,st.session_state.path_info) 
     # 파일이 등록되지 않은 경우
@@ -167,6 +171,7 @@ def main():
             if skip_upload:
                 if st.session_state.get('patient_id'):
                     order_num, path_info = fetch_existing_path_info(st.session_state.patient_id)
+                    print(st.session_state.patient_id)
                     if path_info is None or path_info.empty:
                         st.warning("DB에서 파일 정보를 찾을 수 없습니다.")
                     else:
@@ -228,11 +233,13 @@ def loading(btn_apply,patient_id,uploaded_file):
     """, height=800)
     
     # ------------- zip파일 처리 -----------------
-    order_num,path_info=zip_upload(btn_apply,patient_id,uploaded_file)
+    order_num,path_info,api_key=zip_upload(btn_apply,patient_id,uploaded_file)
+    st.session_state.order_num = order_num
+    st.session_state.api_key = api_key
 
     # ------------- 모델 인스턴스 -----------------              
 
-    fin_scores=model_process(path_info)
+    fin_scores=model_process(path_info, api_key)
     # print('------------- path_info ----------------- ')
 
     # ------------- 결과 DB 저장 -----------------
