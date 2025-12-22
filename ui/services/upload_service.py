@@ -41,7 +41,7 @@ class APIClient:
         try:
             response = requests.get(
                 f"{API_BASE_URL}/patients/{patient_id}/order",
-                timeout=15
+                timeout=150
             )
             response.raise_for_status()
             order_num = response.json().get('order_num')
@@ -65,7 +65,7 @@ class APIClient:
             response = requests.post(
                 f"{API_BASE_URL}/assessments/patient-info",
                 json=payload,
-                timeout=30
+                timeout=120
             )
             response.raise_for_status()
             logger.info(f"환자 검사 정보 저장 완료: {patient_id}")
@@ -80,7 +80,7 @@ class APIClient:
         try:
             response = requests.get(
                 f"{API_BASE_URL}/patients/{patient_id}",
-                timeout=15
+                timeout=150
             )
             response.raise_for_status()
             return response.json()
@@ -203,7 +203,7 @@ class APIClient:
             response = requests.delete(
                 f"{API_BASE_URL}/assessments/{patient_id}/{order_num}",
                 headers=headers,
-                timeout=30
+                timeout=120
             )
             response.raise_for_status()
             logger.info(f"롤백 완료: {patient_id}, 회차 {order_num}")
@@ -212,30 +212,21 @@ class APIClient:
     
     @staticmethod
     def handle_duplicate_files(patient_id: str, order_num: int, api_key: Optional[str]) -> bool:
-        """중복 파일 처리"""
-        try:
-            headers = {"X-API-KEY": api_key} if api_key else None
-            response = requests.post(
-                f"{API_BASE_URL}/assessments/{patient_id}/{order_num}/deduplicate",
-                headers=headers,
-                timeout=30
-            )
-            response.raise_for_status()
-            logger.info(f"중복 파일 처리 완료: {patient_id}")
-            return True
-        except requests.exceptions.RequestException as e:
-            logger.error(f"중복 파일 처리 실패: {e}")
-            return False
+        """중복 처리 단계는 비활성화 (항상 성공으로 간주)"""
+        logger.info("중복 파일 처리 스킵")
+        return True
     
     @staticmethod
     def initialize_scores(patient_id: str, order_num: int, api_key: Optional[str]) -> bool:
         """점수 테이블 초기화"""
         try:
+            if api_key is None:
+                api_key = APIClient.get_api_key_by_patient(patient_id)
             headers = {"X-API-KEY": api_key} if api_key else None
             response = requests.post(
                 f"{API_BASE_URL}/assessments/{patient_id}/{order_num}/init-scores",
                 headers=headers,
-                timeout=30
+                timeout=120
             )
             response.raise_for_status()
             logger.info(f"점수 테이블 초기화 완료: {patient_id}")
@@ -584,6 +575,9 @@ def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optiona
             upload_ok, api_key = APIClient.upload_files_bulk(upload_data)
             if not upload_ok:
                 raise Exception("파일 업로드 실패")
+            if api_key is None:
+                # 응답에 api_key가 없으면 DB에서 조회해 보정
+                api_key = APIClient.get_api_key_by_patient(patient_id)
             
         finally:
             # 변환된 임시 파일 정리

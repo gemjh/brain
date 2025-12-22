@@ -15,39 +15,105 @@ from ..database import get_db
 
 router = APIRouter()
 
-# 간단한 API Key 저장소 (프로세스 메모리): key -> patient_id
-valid_api_keys: Dict[str, str] = {}
+def issue_api_key(patient_id: str, db: Session) -> str:
+    """환자별 API Key 재사용, 없으면 발급 후 DB에 저장"""
+    row = db.execute(
+        text(
+            "SELECT API_KEY FROM patient_api_key WHERE PATIENT_ID = :patient_id"
+        ),
+        {"patient_id": patient_id}
+    ).fetchone()
+    if row and row[0]:
+        key = row[0]
+        db.execute(
+            text("UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
+            {"patient_id": patient_id}
+        )
+        db.commit()
+        return key
 
-
-def issue_api_key(patient_id: str) -> str:
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d%H%M%S%f")
     rand = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
     key = f"{now}-{rand}"
-    valid_api_keys[key] = patient_id
+    db.execute(
+        text(
+            """
+            INSERT INTO patient_api_key (PATIENT_ID, API_KEY, ISSUED_AT, LAST_USED_AT)
+            VALUES (:patient_id, :api_key, NOW(), NOW())
+            ON DUPLICATE KEY UPDATE API_KEY = VALUES(API_KEY), LAST_USED_AT = NOW()
+            """
+        ),
+        {"patient_id": patient_id, "api_key": key}
+    )
+    db.commit()
     return key
+
+
+def resolve_api_key_db(api_key: str, db: Session) -> Optional[str]:
+    """API Key로 환자 ID 조회 (DB)"""
+    row = db.execute(
+        text(
+            """
+            SELECT PATIENT_ID
+            FROM patient_api_key
+            WHERE API_KEY = :api_key
+            """
+        ),
+        {"api_key": api_key}
+    ).fetchone()
+    if row:
+        # 마지막 사용 시각 업데이트
+        db.execute(
+            text(
+                "UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE API_KEY = :api_key"
+            ),
+            {"api_key": api_key}
+        )
+        db.commit()
+        return row[0]
+    return None
 
 
 def require_api_key_for_patient(
     patient_id: str,
     key: Optional[str] = Query(None),
-    header_key: Optional[str] = Header(None, alias="X-API-KEY")
+    header_key: Optional[str] = Header(None, alias="X-API-KEY"),
+    db: Session = Depends(get_db)
 ):
     api_key = header_key or key
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key가 필요합니다")
-    mapped = valid_api_keys.get(api_key)
+    mapped = resolve_api_key_db(api_key, db)
     if mapped != patient_id:
         raise HTTPException(status_code=401, detail="유효하지 않은 API Key")
     return api_key
 
 
 @router.get("/keys/{api_key}/patient")
-def resolve_api_key(api_key: str):
+def resolve_api_key(api_key: str, db: Session = Depends(get_db)):
     """API Key로 매핑된 환자 ID 조회"""
-    patient_id = valid_api_keys.get(api_key)
+    patient_id = resolve_api_key_db(api_key, db)
     if not patient_id:
         raise HTTPException(status_code=404, detail="해당 API Key를 찾을 수 없습니다")
     return {"patient_id": patient_id}
+
+
+@router.get("/keys/patient/{patient_id}")
+def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
+    """환자 ID로 API Key 조회"""
+    row = db.execute(
+        text(
+            """
+            SELECT API_KEY
+            FROM patient_api_key
+            WHERE PATIENT_ID = :patient_id
+            """
+        ),
+        {"patient_id": patient_id}
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="API Key가 없습니다")
+    return {"api_key": row[0]}
 
 # ============================================
 # Request Models
@@ -211,10 +277,10 @@ async def upload_files_with_metadata(
         duration: 오디오 길이
         rate: 샘플링 레이트
         file: 업로드 파일 (wav, m4a 등)
-    """
+        """
     try:
         # 업로드 시에는 인증 요구하지 않고 키를 새로 발급
-        api_key = issue_api_key(patient_id)
+        api_key = issue_api_key(patient_id, db)
 
         # 파일 읽기
         file_content = await file.read()
@@ -299,7 +365,7 @@ async def upload_files_bulk(
             # 업로드 시 인증 요구하지 않음, 첫 파일 기준으로 키 발급
             patient_id = meta['patient_id']
             if api_key is None:
-                api_key = issue_api_key(patient_id)
+                api_key = issue_api_key(patient_id, db)
 
             file_content = await file.read()
             
@@ -543,21 +609,12 @@ def handle_duplicate_files(
                 SELECT *,
                     ROW_NUMBER() OVER (
                         PARTITION BY PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-                        ORDER BY QUESTION_MINOR_NO ASC, CREATE_DATE ASC
+                        ORDER BY QUESTION_MINOR_NO DESC, CREATE_DATE DESC
                     ) AS rn
                 FROM assess_file_lst
                 WHERE PATIENT_ID = :patient_id 
                   AND ORDER_NUM = :order_num 
                   AND USE_YN = 'Y'
-                  AND (PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO) IN (
-                    SELECT PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-                    FROM assess_file_lst
-                    WHERE PATIENT_ID = :patient_id 
-                      AND ORDER_NUM = :order_num 
-                      AND USE_YN = 'Y'
-                    GROUP BY PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-                    HAVING COUNT(*) >= 2
-                )
             )
             UPDATE assess_file_lst AS a
             JOIN ranked_records AS r
@@ -567,8 +624,7 @@ def handle_duplicate_files(
              AND a.QUESTION_CD = r.QUESTION_CD
              AND a.QUESTION_NO = r.QUESTION_NO
              AND a.QUESTION_MINOR_NO = r.QUESTION_MINOR_NO
-            SET a.USE_YN = 'N'
-            WHERE r.rn = 1
+            SET a.USE_YN = CASE WHEN r.rn = 1 THEN 'Y' ELSE 'N' END
         """)
         
         result = db.execute(update_query, {

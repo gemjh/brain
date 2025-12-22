@@ -37,7 +37,7 @@ def get_report(
                 lst.LESION_LOCATION,
                 lst.HEMIPLEGIA,
                 lst.HEMINEGLECT,
-                lst.VISUAL_FIELD_DEFECT,
+                lst.VISUAL_FIELD_DEFECT
             FROM assess_lst lst
             LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
             WHERE lst.PATIENT_ID = :patient_id AND lst.ORDER_NUM = :order_num
@@ -55,8 +55,10 @@ def get_report(
         # 점수 정보
         scores_query = text("""
             SELECT QUESTION_CD, SCORE 
-            FROM assess_score_t
-            WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num
+            FROM assess_score
+            WHERE PATIENT_ID = :patient_id 
+              AND ORDER_NUM = :order_num
+              AND USE_YN = 'Y'
         """)
         
         scores_cursor = db.execute(

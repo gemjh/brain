@@ -23,8 +23,9 @@ import base64
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
-from ui.utils.env_utils import model_common_path
-base_path=os.path.dirname(model_common_path())
+from pathlib import Path
+base_path = Path(__file__).resolve().parents[2]  # 프로젝트 루트 기준
+logger = logging.getLogger(__name__)
 
 apply_custom_css()
 
@@ -50,6 +51,10 @@ def show_main_interface(patient_id,path_info):
         ), unsafe_allow_html=True)
         st.divider()
 
+        # API Key 안내 (세션에 있을 때)
+        # if st.session_state.get("api_key"):
+        #     st.info(f"API Key: `{st.session_state.api_key}`")
+
         # 메뉴
         menu_items = ["평가", "재활", "리포트"]
         for item in menu_items:
@@ -70,18 +75,30 @@ def show_main_interface(patient_id,path_info):
         # ============================================
         # 변경: API를 통한 환자 정보 조회
         # ============================================
-        patient_info = get_reports(patient_id)    
-        if patient_info is not None and len(patient_info) > 0:
+        # 먼저 patient_info API로 기본 정보 조회
+        pi = {}
+        try:
+            pi = APIClient.get_patient(patient_id)
+        except Exception as e:
+            logger.warning(f"환자 기본 정보 조회 실패: {e}")
+
+        patient_info_df = get_reports(patient_id)    
+        if patient_info_df is not None and len(patient_info_df) > 0:
             try:
-                st.write(f"**{patient_info['patient_name'].iloc[0]} {int(patient_info['age'].iloc[0])}세**")
-                st.write(f"환자번호: {patient_info['patient_id'].iloc[0]}")
-                st.write(f"성별: {'여성' if str(patient_info['sex'].iloc[0])=='1' else '남성'}")
-            except:
-                st.write(f"**ㅇㅇ ㅇㅇ세**")
-                st.write(f"환자번호: {st.session_state.patient_id}")
-                st.write(f"성별: ㅇㅇ")                
+                st.write(f"**{patient_info_df['patient_name'].iloc[0]} {int(patient_info_df['age'].iloc[0])}세**")
+                st.write(f"환자번호: {patient_info_df['patient_id'].iloc[0]}")
+                st.write(f"성별: {'여성' if str(patient_info_df['sex'].iloc[0])=='1' else '남성'}")
+            except Exception:
+                st.write(f"**{pi.get('patient_name','-')} {pi.get('age','-')}세**")
+                st.write(f"환자번호: {pi.get('patient_id','-')}")
+                st.write(f"성별: {'여성' if str(pi.get('sex','0'))=='1' else '남성'}")
         else:
-            st.write("환자 정보를 등록하면 여기 표시됩니다")
+            if pi:
+                st.write(f"**{pi.get('patient_name','-')} {pi.get('age','-')}세**")
+                st.write(f"환자번호: {pi.get('patient_id','-')}")
+                st.write(f"성별: {'여성' if str(pi.get('sex','0'))=='1' else '남성'}")
+            else:
+                st.write("환자 정보를 등록하면 여기 표시됩니다")
 
         st.divider()     
 
@@ -97,7 +114,7 @@ def show_main_interface(patient_id,path_info):
     if st.session_state.current_page == "리포트":
         # 초기화면(검사유형 Select하지 않은 상태)
         if st.session_state.view_mode == "list":    
-            show_report_page(patient_info['patient_id'].iloc[0] if not patient_info.empty else '')
+            show_report_page(patient_id)
 
         # DB 호출 - API로 변경
         else:         

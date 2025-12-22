@@ -33,6 +33,11 @@ def get_assessments(
                 AND lst.ORDER_NUM = flst.ORDER_NUM
             WHERE flst.USE_YN = 'Y'
                 AND lst.PATIENT_ID = :patient_id
+                AND EXISTS (
+                    SELECT 1 FROM assess_score s
+                    WHERE s.PATIENT_ID = lst.PATIENT_ID
+                      AND s.ORDER_NUM = lst.ORDER_NUM
+                )
         """
         
         params = {"patient_id": patient_id}
@@ -61,6 +66,27 @@ def get_assessments(
         ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"검사 목록 조회 실패: {str(e)}")
+
+
+@router.get("/order/{order_num}/patient")
+def get_patient_by_order(order_num: int, db: Session = Depends(get_db)):
+    """ORDER_NUM으로 환자 ID 조회 (가장 최근 생성 기준)"""
+    try:
+        query = text("""
+            SELECT PATIENT_ID
+            FROM assess_lst
+            WHERE ORDER_NUM = :order_num
+            ORDER BY CREATE_DATE DESC
+            LIMIT 1
+        """)
+        row = db.execute(query, {"order_num": order_num}).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="해당 회차의 환자를 찾을 수 없습니다")
+        return {"patient_id": row[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"환자 조회 실패: {str(e)}")
 
 @router.get("/{patient_id}/{order_num}/scores")
 def get_assessment_scores(

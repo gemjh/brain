@@ -8,6 +8,8 @@ st.set_page_config(
 )
 import os
 import logging
+import threading
+import time
 from typing import Optional
 # TensorFlow 설정 (import 전에 먼저 설정)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -21,11 +23,26 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from ui.utils.env_utils import activate_conda_environment
+from scripts.model_worker import process_pending_jobs
+
 
 spinner = st.spinner('환경 설정 중...')
 spinner.__enter__()
 activate_conda_environment()
 try:
+    # 백그라운드 모델 워커 (5분 주기) 한 번만 시작
+    if 'worker_thread_started' not in st.session_state:
+        def _worker_loop():
+            while True:
+                try:
+                    process_pending_jobs()
+                except Exception as e:
+                    logging.error(f"모델 워커 오류: {e}")
+                time.sleep(300)  # 5분
+        t = threading.Thread(target=_worker_loop, daemon=True)
+        t.start()
+        st.session_state.worker_thread_started = True
+
     # MPS 완전 비활성화
     import torch
     torch.backends.mps.is_available = lambda: False
@@ -168,6 +185,8 @@ def main():
             st.session_state.patient_id=patient_id
 
             uploaded_file = st.file_uploader("폴더를 압축(zip)한 파일을 업로드하세요.", type=['zip'])
+            # if st.session_state.get("api_key"):
+            #     st.info(f"현재 세션 API Key: `{st.session_state.api_key}`")
             api_key_input = st.text_input("이미 발급받은 API Key가 있다면 입력하세요 (업로드 스킵용)", value=st.session_state.get('api_key') or "")
             skip_upload = st.button("업로드 스킵", key="skip_btn")
             if skip_upload:
@@ -242,6 +261,9 @@ def loading(btn_apply,patient_id,uploaded_file):
     
     # ------------- zip파일 처리 -----------------
     order_num,path_info,api_key=zip_upload(btn_apply,patient_id,uploaded_file)
+    if path_info is None or order_num is None:
+        st.error("업로드 중 오류가 발생했습니다. 로그를 확인하세요.")
+        return None
     st.session_state.order_num = order_num
     st.session_state.api_key = api_key
 
@@ -253,13 +275,15 @@ def loading(btn_apply,patient_id,uploaded_file):
     # ------------- 결과 DB 저장 -----------------
     try:
         from services.db_service import save_scores_to_db
-        save_scores_to_db(fin_scores,order_num)
+        save_scores_to_db(fin_scores, order_num, patient_id)
         print("점수가 성공적으로 DB에 저장되었습니다.")
         
         # 로딩 제거
         components.html("")  
     except Exception as e:
         print(f"DB 저장 중 오류 발생: {e}")
+    if st.session_state.api_key:
+        st.info(f"발급된 API Key: `{st.session_state.api_key}`")
     return path_info
     
 

@@ -95,6 +95,8 @@ def model_process(path_info, api_key=None):
     Returns:
         dict: 모델링 결과 {'LTN_RPT': 10, 'GUESS_END': 5, ...}
     """
+    # temp_files는 예외 발생 여부와 관계없이 finally에서 참조되므로 미리 초기화
+    temp_files = []
     try:
         # 같은 문항에 여러 파일이 있는 경우 question_minor_no가 가장 큰 것만 유지
         group_cols = ['patient_id', 'order_num', 'assess_type', 'question_cd', 'question_no']

@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def save_scores_to_db(fin_scores: dict, order_num: int) -> bool:
+def save_scores_to_db(fin_scores: dict, order_num: int, patient_id: str) -> bool:
     """
     모델링 결과를 API를 통해 DB에 저장하는 함수
     
@@ -18,8 +18,8 @@ def save_scores_to_db(fin_scores: dict, order_num: int) -> bool:
         bool: 저장 성공 여부
     """
     try:
-        # 세션에서 환자 정보 가져오기
-        patient_id = st.session_state.patient_id
+        if not patient_id:
+            raise ValueError("patient_id가 필요합니다.")
         
         # QUESTION_NO와 QUESTION_MINOR_NO 매핑 (QUESTION_CD별로)
         question_mapping = {

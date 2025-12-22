@@ -1,13 +1,17 @@
 import requests
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from typing import List, Dict, Optional
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-load_dotenv()
+# .env를 명시적으로 프로젝트 루트에서 로드 (override=True로 기존 값 덮어쓰기)
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+# 환경 변수에 공백이 섞여도 안전하게 처리
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
 logger = logging.getLogger(__name__)
 
 
@@ -29,8 +33,9 @@ class APIClient:
         Returns:
             dict: JSON 응답
         """
+        # API_BASE_URL = 'https://configuring-sims-diane-survive.trycloudflare.com/api/v1'
         url = f"{API_BASE_URL}{endpoint}"
-        timeout = kwargs.pop('timeout', 30)
+        timeout = kwargs.pop('timeout', 120)
         
         try:
             response = requests.request(method, url, timeout=timeout, **kwargs)
@@ -100,6 +105,16 @@ class APIClient:
             f"/assessments/{patient_id}/{order_num}/files",
             headers=headers
         )
+
+    @staticmethod
+    def get_patient_by_order(order_num: int) -> Optional[str]:
+        """ORDER_NUM으로 환자 ID 조회"""
+        try:
+            res = APIClient._make_request("GET", f"/assessments/order/{order_num}/patient")
+            return res.get("patient_id")
+        except Exception as e:
+            logger.error(f"ORDER_NUM로 환자 조회 실패: {e}")
+            return None
     
     # ============================================
     # 점수 저장 (신규 추가)
@@ -186,4 +201,14 @@ class APIClient:
     def resolve_api_key(api_key: str) -> Dict:
         """API Key로 환자 ID 조회"""
         return APIClient._make_request("GET", f"/keys/{api_key}/patient")
+
+    @staticmethod
+    def get_api_key_by_patient(patient_id: str) -> Optional[str]:
+        """환자 ID로 API Key 조회"""
+        try:
+            res = APIClient._make_request("GET", f"/keys/patient/{patient_id}")
+            return res.get("api_key")
+        except Exception as e:
+            logger.error(f"API Key 조회 실패: {e}")
+            return None
     
