@@ -106,7 +106,8 @@ def get_reports(patient_id: str, test_type: str = None) -> pd.DataFrame:
         assessments = APIClient.get_assessments(patient_id, test_type)
         
         if not assessments:
-            logger.warning(f"검사 기록이 없습니다: {patient_id}")
+            pending = APIClient.get_pending_file_count(patient_id)
+            logger.warning(f"검사 기록이 없습니다: {patient_id} (미진행 파일 {pending}건)")
             return pd.DataFrame()
         
         df = pd.DataFrame(assessments)

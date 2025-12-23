@@ -194,6 +194,9 @@ def main():
                     try:
                         resolved = APIClient.resolve_api_key(api_key_input)
                         patient_id_resolved = resolved.get("patient_id")
+                        if patient_id_resolved and patient_id_resolved != patient_id:
+                            st.warning("입력한 환자ID와 API Key가 매핑된 환자ID가 다릅니다. 올바른 조합인지 확인하세요.")
+                            st.stop()
                         st.session_state.patient_id = patient_id_resolved
                         st.session_state.api_key = api_key_input
                         order_num, path_info = fetch_existing_path_info(patient_id_resolved, api_key=api_key_input)
@@ -220,45 +223,6 @@ def main():
         st.rerun()
 
 def loading(btn_apply,patient_id,uploaded_file):
-    # import streamlit.components.v1 as components
-    # 로딩 애니메이션 시작
-    components.html("""
-    <div style="
-        position: fixed;
-        top: 0; left: 0; width: 100vw; height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        backdrop-filter: blur(8px);
-        z-index: 99999;
-    ">
-        <div style="
-            border: 8px solid rgba(255,255,255,0.3);
-            border-top: 8px solid #ffffff;
-            border-radius: 50%;
-            width: 60px;
-            height: 60px;
-            margin-bottom: 20px;
-            animation: spin 1s linear infinite;
-        "></div>
-        <p style="
-            margin: 0; 
-            font-size: 24px; 
-            color: white; 
-            font-weight: bold;
-            text-align: center;
-            letter-spacing: 1px;
-        ">분석 중입니다...</p>
-    </div>
-    <style>
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    </style>
-    """, height=800)
-    
     # ------------- zip파일 처리 -----------------
     order_num,path_info,api_key=zip_upload(btn_apply,patient_id,uploaded_file)
     if path_info is None or order_num is None:
@@ -267,23 +231,23 @@ def loading(btn_apply,patient_id,uploaded_file):
     st.session_state.order_num = order_num
     st.session_state.api_key = api_key
 
-    # ------------- 모델 인스턴스 -----------------              
-
-    fin_scores=model_process(path_info, api_key)
-    # print('------------- path_info ----------------- ')
-
-    # ------------- 결과 DB 저장 -----------------
-    try:
-        from services.db_service import save_scores_to_db
-        save_scores_to_db(fin_scores, order_num, patient_id)
-        print("점수가 성공적으로 DB에 저장되었습니다.")
-        
-        # 로딩 제거
-        components.html("")  
-    except Exception as e:
-        print(f"DB 저장 중 오류 발생: {e}")
+    # 업로드/저장까지 완료된 시점에 바로 알림 표시
     if st.session_state.api_key:
-        st.info(f"발급된 API Key: `{st.session_state.api_key}`")
+        st.info(f"파일을 업로드했습니다. access key: `{st.session_state.api_key}`")
+    else:
+        st.info("파일을 업로드했습니다.")
+
+    # ------------- 모델링 및 저장: 별도 스레드로 처리하여 UI를 바로 반환 -------------
+    def _run_modeling():
+        try:
+            fin_scores = model_process(path_info, api_key)
+            from services.db_service import save_scores_to_db
+            save_scores_to_db(fin_scores, order_num, patient_id)
+            logging.info("모델링 및 점수 저장 완료")
+        except Exception as e:
+            logging.error(f"모델링/점수 저장 중 오류: {e}")
+
+    threading.Thread(target=_run_modeling, daemon=True).start()
     return path_info
     
 

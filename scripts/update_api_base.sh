@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Quick helper to start a Cloudflare quick tunnel, parse the issued URL from the
-# logs, and update the project's .env API_BASE_URL accordingly.
+# logs, and write the project's config/api_base.json accordingly.
 # Usage: ./scripts/update_api_base.sh [local_url]
 # Example: ./scripts/update_api_base.sh http://localhost:8000
 
@@ -8,7 +8,7 @@ set -euo pipefail
 
 LOCAL_URL="${1:-http://localhost:8000}"
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${APP_ROOT}/.env"
+CONFIG_FILE="${APP_ROOT}/config/api_base.json"
 LOG_FILE="${APP_ROOT}/cloudflared.log"
 
 echo "[INFO] Starting Cloudflare quick tunnel for ${LOCAL_URL}"
@@ -34,15 +34,16 @@ fi
 
 API_BASE_URL="${TUNNEL_URL}/api/v1"
 echo "[INFO] Detected tunnel URL: ${TUNNEL_URL}"
-echo "[INFO] Setting API_BASE_URL=${API_BASE_URL} in ${ENV_FILE}"
+echo "[INFO] Setting API_BASE_URL=${API_BASE_URL} in ${CONFIG_FILE}"
 
-if grep -q '^API_BASE_URL=' "${ENV_FILE}"; then
-    # macOS/BSD sed requires an empty string after -i
-    sed -i '' "s|^API_BASE_URL=.*|API_BASE_URL=${API_BASE_URL}|" "${ENV_FILE}"
-else
-    echo "API_BASE_URL=${API_BASE_URL}" >> "${ENV_FILE}"
-fi
+mkdir -p "$(dirname "${CONFIG_FILE}")"
+cat > "${CONFIG_FILE}" <<EOF
+{
+  "api_base_url": "${API_BASE_URL}"
+}
+EOF
+echo "[INFO] Wrote ${CONFIG_FILE}"
 
 echo "[INFO] Tunnel PID: ${CF_PID}"
 echo "[INFO] Leave this tunnel running while you test. Stop it with: kill ${CF_PID}"
-echo "[INFO] If your app reads .env at startup, restart the API/Streamlit process to pick up the new URL."
+echo "[INFO] Restart the API/Streamlit process to pick up the new URL (config/api_base.json)."

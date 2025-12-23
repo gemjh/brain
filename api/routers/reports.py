@@ -18,7 +18,7 @@ def get_report(
 ):
     """검사 리포트 전체 데이터 조회"""
     try:
-        # 환자 기본 정보
+        # patient_info: 기존 저장된 환자 기본 정보, assess_lst: 검사에서 새로 조사된 정보
         patient_query = text("""
             SELECT 
                 lst.PATIENT_ID,

@@ -15,6 +15,7 @@ from ..database import get_db
 
 router = APIRouter()
 
+# 현재 api key 로직: 환자 파일 업로드하면 발급, 그후 환자ID별로 저장 및 조회에 사용
 def issue_api_key(patient_id: str, db: Session) -> str:
     """환자별 API Key 재사용, 없으면 발급 후 DB에 저장"""
     row = db.execute(
@@ -100,7 +101,7 @@ def resolve_api_key(api_key: str, db: Session = Depends(get_db)):
 
 @router.get("/keys/patient/{patient_id}")
 def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
-    """환자 ID로 API Key 조회"""
+    """환자 ID로 API Key 조회, 없으면 새로 발급하여 반환"""
     row = db.execute(
         text(
             """
@@ -111,9 +112,19 @@ def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
         ),
         {"patient_id": patient_id}
     ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="API Key가 없습니다")
-    return {"api_key": row[0]}
+
+    if row and row[0]:
+        api_key = row[0]
+        db.execute(
+            text("UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
+            {"patient_id": patient_id}
+        )
+        db.commit()
+        return {"api_key": api_key}
+
+    # 없으면 발급
+    api_key = issue_api_key(patient_id, db)
+    return {"api_key": api_key}
 
 # ============================================
 # Request Models

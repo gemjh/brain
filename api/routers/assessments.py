@@ -68,25 +68,34 @@ def get_assessments(
         raise HTTPException(status_code=500, detail=f"검사 목록 조회 실패: {str(e)}")
 
 
-@router.get("/order/{order_num}/patient")
-def get_patient_by_order(order_num: int, db: Session = Depends(get_db)):
-    """ORDER_NUM으로 환자 ID 조회 (가장 최근 생성 기준)"""
+@router.get("/{patient_id}/pending-count")
+def get_pending_file_count(
+    patient_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    모델링이 진행되지 않은 파일(점수 미존재) 개수 조회
+    USE_YN='Y'인 파일 중 assess_score에 대응되지 않은 건을 센다.
+    """
     try:
         query = text("""
-            SELECT PATIENT_ID
-            FROM assess_lst
-            WHERE ORDER_NUM = :order_num
-            ORDER BY CREATE_DATE DESC
-            LIMIT 1
+            SELECT COUNT(*) AS pending_count
+            FROM assess_file_lst f
+            LEFT JOIN assess_score s
+              ON s.PATIENT_ID = f.PATIENT_ID
+             AND s.ORDER_NUM = f.ORDER_NUM
+             AND s.QUESTION_CD = f.QUESTION_CD
+             AND s.QUESTION_NO = f.QUESTION_NO
+             AND s.QUESTION_MINOR_NO = f.QUESTION_MINOR_NO
+            WHERE f.USE_YN = 'Y'
+              AND f.PATIENT_ID = :patient_id
+              AND s.PATIENT_ID IS NULL
         """)
-        row = db.execute(query, {"order_num": order_num}).fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="해당 회차의 환자를 찾을 수 없습니다")
-        return {"patient_id": row[0]}
-    except HTTPException:
-        raise
+        count = db.execute(query, {"patient_id": patient_id}).scalar() or 0
+        return {"pending_count": int(count)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"환자 조회 실패: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"미진행 파일 조회 실패: {str(e)}")
+
 
 @router.get("/{patient_id}/{order_num}/scores")
 def get_assessment_scores(

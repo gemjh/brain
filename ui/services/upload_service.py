@@ -14,6 +14,7 @@ import tempfile
 import shutil
 from pydub import AudioSegment
 from pydub.utils import mediainfo
+import json
 
 # 로깅 설정
 logging.basicConfig(
@@ -25,7 +26,24 @@ logger = logging.getLogger(__name__)
 # 환경변수 로드
 env_path = Path(__file__).parent.parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "api_base.json"
+
+
+def _get_api_base_url() -> str:
+    """config/api_base.json 우선, 없으면 .env"""
+    try:
+        if CONFIG_PATH.exists():
+            with CONFIG_PATH.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                url = str(data.get("api_base_url", "")).strip()
+                if url:
+                    return url
+    except Exception as e:
+        logger.warning(f"api_base.json 로드 실패, .env 사용: {e}")
+    return os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
+
+
+API_BASE_URL = _get_api_base_url()
 
 # 검사 타입 코드 매핑
 clap_A_cd = {'3':'LTN_RPT', '4':'GUESS_END', '5':'SAY_OBJ', '6':'SAY_ANI', '7':'TALK_PIC'}
@@ -142,6 +160,7 @@ class APIClient:
         try:
             success_count = 0
             api_key = None
+            first_patient_id = files_data[0]['metadata']['patient_id'] if files_data else None
             
             for item in files_data:
                 file_path = item['file_path']
@@ -187,6 +206,14 @@ class APIClient:
                     continue
             
             logger.info(f"파일 일괄 업로드 완료: {success_count}/{len(files_data)}건")
+
+            # 업로드 응답에 키가 없으면 DB에서 조회해서 보정
+            if api_key is None and first_patient_id:
+                api_key = APIClient.get_api_key_by_patient(first_patient_id)
+                if api_key:
+                    logger.info(f"DB에서 API Key 보정: {api_key}")
+                else:
+                    logger.warning("API Key를 발급/조회하지 못했습니다. 업로드는 진행되었을 수 있습니다.")
             
             # 최소 1개 이상 성공하면 True
             return success_count > 0, api_key
@@ -575,8 +602,8 @@ def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optiona
             upload_ok, api_key = APIClient.upload_files_bulk(upload_data)
             if not upload_ok:
                 raise Exception("파일 업로드 실패")
-            if api_key is None:
-                # 응답에 api_key가 없으면 DB에서 조회해 보정
+            # 응답에 api_key가 없거나 비어 있으면 DB 조회/발급하여 보정
+            if not api_key:
                 api_key = APIClient.get_api_key_by_patient(patient_id)
             
         finally:

@@ -1,6 +1,7 @@
 import time
 import tempfile
 import os
+import json
 import requests
 import logging
 import pandas as pd
@@ -59,8 +60,22 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
     from pathlib import Path as EnvPath
     
     env_path = EnvPath(__file__).parent.parent.parent / ".env"
+    config_path = EnvPath(__file__).resolve().parents[2] / "config" / "api_base.json"
     load_dotenv(dotenv_path=env_path)
-    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1")
+
+    def _get_api_base_url() -> str:
+        try:
+            if config_path.exists():
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    url = str(data.get("api_base_url", "")).strip()
+                    if url:
+                        return url
+        except Exception as e:
+            logger.warning(f"api_base.json 로드 실패, .env 사용: {e}")
+        return os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
+
+    API_BASE_URL = _get_api_base_url()
     
     try:
         url = f"{API_BASE_URL}/assessments/{patient_id}/{order_num}/files/{question_cd}/download"

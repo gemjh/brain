@@ -1,21 +1,42 @@
-import requests
+import json
+import logging
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 from typing import List, Dict, Optional
-import logging
+
+import requests
+from dotenv import load_dotenv
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # .env를 명시적으로 프로젝트 루트에서 로드 (override=True로 기존 값 덮어쓰기)
-_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+_ROOT_DIR = Path(__file__).resolve().parents[2]
+_ENV_PATH = _ROOT_DIR / ".env"
+_CONFIG_PATH = _ROOT_DIR / "config" / "api_base.json"
 load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
-# 환경 변수에 공백이 섞여도 안전하게 처리
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
+# 기본값 (환경 변수)
+_DEFAULT_API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
 logger = logging.getLogger(__name__)
 
 
 class APIClient:    
+    @staticmethod
+    def _get_api_base_url() -> str:
+        """
+        API_BASE_URL을 config/api_base.json에서 우선 읽고,
+        없으면 환경 변수(.env) 값을 사용한다.
+        """
+        try:
+            if _CONFIG_PATH.exists():
+                with _CONFIG_PATH.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    url = str(data.get("api_base_url", "")).strip()
+                    if url:
+                        return url
+        except Exception as e:
+            logger.warning(f"api_base.json 로드 실패, 기본값 사용: {e}")
+        return _DEFAULT_API_BASE_URL
+
     # ============================================
     # 공통 메서드
     # ============================================
@@ -33,8 +54,9 @@ class APIClient:
         Returns:
             dict: JSON 응답
         """
-        # API_BASE_URL = 'https://configuring-sims-diane-survive.trycloudflare.com/api/v1'
-        url = f"{API_BASE_URL}{endpoint}"
+        base_url = APIClient._get_api_base_url()
+        url = f"{base_url}{endpoint}"
+        logger.info(f"API 요청: {method} {url}")
         timeout = kwargs.pop('timeout', 120)
         
         try:
@@ -81,6 +103,16 @@ class APIClient:
             params=params,
             headers=headers
         )
+
+    @staticmethod
+    def get_pending_file_count(patient_id: str) -> int:
+        """모델링 미진행 파일 개수 조회"""
+        try:
+            res = APIClient._make_request("GET", f"/assessments/{patient_id}/pending-count")
+            return int(res.get("pending_count", 0))
+        except Exception as e:
+            logger.warning(f"미진행 파일 개수 조회 실패: {e}")
+            return 0
     
     @staticmethod
     def get_assessment_scores(
@@ -106,15 +138,6 @@ class APIClient:
             headers=headers
         )
 
-    @staticmethod
-    def get_patient_by_order(order_num: int) -> Optional[str]:
-        """ORDER_NUM으로 환자 ID 조회"""
-        try:
-            res = APIClient._make_request("GET", f"/assessments/order/{order_num}/patient")
-            return res.get("patient_id")
-        except Exception as e:
-            logger.error(f"ORDER_NUM로 환자 조회 실패: {e}")
-            return None
     
     # ============================================
     # 점수 저장 (신규 추가)
