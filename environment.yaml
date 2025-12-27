@@ -32,6 +32,10 @@ dependencies:
       - joblib==1.5.1
       - streamlit_image_coordinates==0.4.0
       - pydub==0.25.1
-      
+      - sqlalchemy==2.0.45
+      - pymysql==1.1.2
+      - uvicorn==0.40.0
+      - fastapi==0.127.1
+      - python-multipart==0.0.21
 
     

@@ -1,16 +1,9 @@
-import streamlit as st
-# 페이지 설정
-st.set_page_config(
-    page_title="CLAP",
-    page_icon="👋",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 import os
 import logging
 import threading
 import time
 from typing import Optional
+import sys
 # TensorFlow 설정 (import 전에 먼저 설정)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['TF_NUM_INTEROP_THREADS'] = '1'
@@ -19,16 +12,25 @@ os.environ['TF_NUM_INTRAOP_THREADS'] = '1'
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 os.environ["PYTORCH_MPS_HIGH_WATERMARK_RATIO"] = "0.0"
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
-import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from ui.utils.env_utils import activate_conda_environment
+activate_conda_environment()
 from scripts.model_worker import process_pending_jobs
+
+
+import streamlit as st
+# 페이지 설정
+st.set_page_config(
+    page_title="CLAP",
+    page_icon="👋",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 
 spinner = st.spinner('환경 설정 중...')
 spinner.__enter__()
-activate_conda_environment()
 try:
     # 백그라운드 모델 워커 (5분 주기) 한 번만 시작
     if 'worker_thread_started' not in st.session_state:
@@ -202,11 +204,11 @@ def main():
                         order_num, path_info = fetch_existing_path_info(patient_id_resolved, api_key=api_key_input)
                         if path_info is None or path_info.empty:
                             st.warning("DB에서 파일 정보를 찾을 수 없습니다.")
-                        else:
-                            st.session_state.path_info = path_info
-                            st.session_state.order_num = order_num
-                            st.session_state.upload_completed = True
-                            st.rerun()
+                        # else:
+                        st.session_state.path_info = path_info
+                        st.session_state.order_num = order_num
+                        st.session_state.upload_completed = True
+                        st.rerun()
                     except Exception as e:
                         st.warning(f"API Key 확인 실패: {e}")
                 else:

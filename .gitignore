@@ -27,6 +27,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.conda_pkgs
+.condarc.auto.yaml
 
 # 환경 변수 파일
 .env

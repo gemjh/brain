@@ -56,7 +56,7 @@ class APIClient:
         """
         base_url = APIClient._get_api_base_url()
         url = f"{base_url}{endpoint}"
-        logger.info(f"API 요청: {method} {url}")
+        logger.debug(f"API 요청: {method} {url}")
         timeout = kwargs.pop('timeout', 120)
         
         try:

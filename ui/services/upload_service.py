@@ -534,7 +534,7 @@ def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optiona
         order_num = APIClient.fetch_order_num(patient_id)
         logger.info(f"수행회차: {order_num}")
         
-        # 3. CSV 파일 처리
+        # 3. CSV 파일 처리 : 의뢰인, 검사일자, 검사자
         csv_file_path = os.path.join(target_path, f"{patient_id}.csv")
         
         if os.path.exists(csv_file_path):
