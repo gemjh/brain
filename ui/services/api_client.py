@@ -23,9 +23,15 @@ class APIClient:
     @staticmethod
     def _get_api_base_url() -> str:
         """
-        API_BASE_URL을 config/api_base.json에서 우선 읽고,
-        없으면 환경 변수(.env) 값을 사용한다.
+        API_BASE_URL을 우선 환경 변수(.env)에서 읽고,
+        없으면 config/api_base.json을 사용한다.
         """
+        # 1순위: .env / 환경 변수
+        env_url = os.getenv("API_BASE_URL", "").strip()
+        if env_url:
+            return env_url
+
+        # 2순위: config/api_base.json
         try:
             if _CONFIG_PATH.exists():
                 with _CONFIG_PATH.open("r", encoding="utf-8") as f:
@@ -35,7 +41,19 @@ class APIClient:
                         return url
         except Exception as e:
             logger.warning(f"api_base.json 로드 실패, 기본값 사용: {e}")
+
+        # 3순위: 기본값
         return _DEFAULT_API_BASE_URL
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """스킴이 없으면 http:// 를 붙여 requests 에러(No connection adapters) 방지"""
+        url = url.strip()
+        if not url:
+            return url
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        return f"http://{url}"
 
     # ============================================
     # 공통 메서드
@@ -54,7 +72,8 @@ class APIClient:
         Returns:
             dict: JSON 응답
         """
-        base_url = APIClient._get_api_base_url()
+        raw_base_url = APIClient._get_api_base_url()
+        base_url = APIClient._normalize_url(raw_base_url)
         url = f"{base_url}{endpoint}"
         logger.debug(f"API 요청: {method} {url}")
         timeout = kwargs.pop('timeout', 120)

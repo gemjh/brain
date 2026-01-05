@@ -10,84 +10,66 @@ from ..database import get_db
 
 router = APIRouter()
 
-@router.get("/{patient_id}/{order_num}")
+@router.get("/reports/{patient_id}/{api_key}")
 def get_report(
     patient_id: str,
-    order_num: int,
+    api_key: str,
     db: Session = Depends(get_db)
 ):
     """검사 리포트 전체 데이터 조회"""
     try:
-        # patient_info: 기존 저장된 환자 기본 정보, assess_lst: 검사에서 새로 조사된 정보
-        patient_query = text("""
-            SELECT 
-                lst.PATIENT_ID,
-                lst.ORDER_NUM,
-                COALESCE(p.NAME, '정보없음') AS PATIENT_NAME,
-                p.SEX AS PATIENT_SEX,
-                lst.REQUEST_ORG,
-                lst.ASSESS_DATE,
-                lst.ASSESS_PERSON,
-                lst.AGE,
-                lst.EDU,
-                lst.POST_STROKE_DATE,
-                lst.DIAGNOSIS,
-                lst.DIAGNOSIS_ETC,
-                lst.STROKE_TYPE,
-                lst.LESION_LOCATION,
-                lst.HEMIPLEGIA,
-                lst.HEMINEGLECT,
-                lst.VISUAL_FIELD_DEFECT
-            FROM assess_lst lst
-            LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
-            WHERE lst.PATIENT_ID = :patient_id AND lst.ORDER_NUM = :order_num
+        api_check_query = text("""
+            SELECT API_KEY
+            FROM patient_api_key
+            WHERE API_KEY = :api_key
         """)
-        
-        patient_cursor = db.execute(
-            patient_query, 
-            {"patient_id": patient_id, "order_num": order_num}
+        api_check_cursor = db.execute(
+            api_check_query, 
+            {"api_key": api_key}
         )
-        patient_info = patient_cursor.mappings().fetchone()
+        api_check_info = api_check_cursor.mappings().fetchone()
+        if not api_check_info:
+            raise HTTPException(status_code=404, detail="API 키를 찾을 수 없습니다")
+
+        assess_query = text("""
+            SELECT distinct
+                sc.PATIENT_ID, 
+                sc.ASSESS_TYPE,
+                sc.QUESTION_CD,
+                sc.QUESTION_NO,
+                sc.QUESTION_MINOR_NO,
+                sc.SCORE,
+                sc.NOTE,
+                sc.CREATE_DATE,
+                cd.SUB_CD_NM as QUESTION_NM
+            FROM assess_score sc
+            WHERE sc.PATIENT_ID = :patient_id AND psk.API_KEY = :api_key AND sc.USE_YN = 'Y'
+            order by sc.create_date desc
+        """)
+        assess_cursor = db.execute(
+            assess_query, 
+            {"patient_id": patient_id, "api_key": api_key}
+        )
+        assess_info = assess_cursor.mappings().fetchone()
         
-        if not patient_info:
+        if not assess_info:
             raise HTTPException(status_code=404, detail="검사 기록을 찾을 수 없습니다")
         
-        # 점수 정보
-        scores_query = text("""
-            SELECT QUESTION_CD, SCORE 
-            FROM assess_score
-            WHERE PATIENT_ID = :patient_id 
-              AND ORDER_NUM = :order_num
-              AND USE_YN = 'Y'
-        """)
-        
-        scores_cursor = db.execute(
-            scores_query, 
-            {"patient_id": patient_id, "order_num": order_num}
-        )
-        scores = scores_cursor.fetchall()
-        
         return {
-            "patient_info": {
-                "patient_id": patient_info["PATIENT_ID"],
-                "order_num": patient_info["ORDER_NUM"],
-                "patient_name": patient_info["PATIENT_NAME"],
-                "sex": patient_info["PATIENT_SEX"],
-                "age": patient_info["AGE"],
-                "edu": patient_info["EDU"],
-                "request_org": patient_info["REQUEST_ORG"],
-                "assess_date": str(patient_info["ASSESS_DATE"]) if patient_info["ASSESS_DATE"] else None,
-                "assess_person": patient_info["ASSESS_PERSON"],
-                "post_stroke_date": str(patient_info["POST_STROKE_DATE"]) if patient_info["POST_STROKE_DATE"] else None,
-                "diagnosis": patient_info["DIAGNOSIS"],
-                "diagnosis_etc": patient_info["DIAGNOSIS_ETC"],
-                "stroke_type": patient_info["STROKE_TYPE"],
-                "lesion_location": patient_info["LESION_LOCATION"],
-                "hemiplegia": patient_info["HEMIPLEGIA"],
-                "hemineglect": patient_info["HEMINEGLECT"],
-                "visual_field_defect": patient_info["VISUAL_FIELD_DEFECT"],
-            },
-            "scores": {row[0]: float(row[1]) if row[1] else 0 for row in scores}
+            "assess_info": [
+                {
+                    "patient_id": row["PATIENT_ID"],
+                    "assess_type": row["ASSESS_TYPE"],
+                    "question_cd": row["QUESTION_CD"],
+                    "question_no": row["QUESTION_NO"],
+                    "question_minor_no": row["QUESTION_MINOR_NO"],
+                    "score": row["SCORE"],
+                    "note": row["NOTE"],
+                    "create_date": row["CREATE_DATE"],
+                    "question_nm": row["QUESTION_NM"]
+                }
+                for row in assess_info
+            ]
         }
     except HTTPException:
         raise

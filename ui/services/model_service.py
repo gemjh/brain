@@ -2,6 +2,7 @@ import time
 import tempfile
 import os
 import json
+import base64
 import requests
 import logging
 import pandas as pd
@@ -64,6 +65,12 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
     load_dotenv(dotenv_path=env_path)
 
     def _get_api_base_url() -> str:
+        # 1순위: .env / 환경 변수
+        env_url = os.getenv("API_BASE_URL", "").strip()
+        if env_url:
+            return env_url
+
+        # 2순위: config/api_base.json
         try:
             if config_path.exists():
                 with open(config_path, "r", encoding="utf-8") as f:
@@ -73,9 +80,19 @@ def download_file_from_db(patient_id: str, order_num: int, question_cd: str, que
                         return url
         except Exception as e:
             logger.warning(f"api_base.json 로드 실패, .env 사용: {e}")
-        return os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
 
-    API_BASE_URL = _get_api_base_url()
+        # 3순위: 기본값
+        return "http://localhost:8000/api/v1"
+
+    def _normalize_url(url: str) -> str:
+        url = url.strip()
+        if not url:
+            return url
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        return f"http://{url}"
+
+    API_BASE_URL = _normalize_url(_get_api_base_url())
     
     try:
         url = f"{API_BASE_URL}/assessments/{patient_id}/{order_num}/files/{question_cd}/download"
@@ -110,10 +127,8 @@ def model_process(path_info, api_key=None):
     Returns:
         dict: 모델링 결과 {'LTN_RPT': 10, 'GUESS_END': 5, ...}
     """
-    # temp_files는 예외 발생 여부와 관계없이 finally에서 참조되므로 미리 초기화
     temp_files = []
     try:
-        # 같은 문항에 여러 파일이 있는 경우 question_minor_no가 가장 큰 것만 유지
         group_cols = ['patient_id', 'order_num', 'assess_type', 'question_cd', 'question_no']
         if 'question_minor_no' in path_info.columns:
             try:
@@ -125,10 +140,6 @@ def model_process(path_info, api_key=None):
         else:
             path_info = path_info.drop_duplicates(subset=group_cols, keep='last').reset_index(drop=True)
 
-        # 임시 파일 관리용 리스트
-        temp_files = []
-        
-        # 파일 경로 대신 DB 조회 정보로 그룹화
         ltn_rpt_files = []
         guess_end_files = []
         say_ani_files = []
@@ -138,7 +149,6 @@ def model_process(path_info, api_key=None):
         ah_sound_files = []
         ptk_sound_files = []
         
-        # path_info에서 파일 정보 추출
         for i in range(len(path_info)):
             patient_id = str(path_info.loc[i, 'patient_id'])
             order_num = int(path_info.loc[i, 'order_num'])
@@ -149,11 +159,15 @@ def model_process(path_info, api_key=None):
             file_info = {
                 'patient_id': patient_id,
                 'order_num': order_num,
+                'assess_type': assess_type,
                 'question_cd': question_cd,
-                'question_no': question_no
+                'question_no': question_no,
+                'question_minor_no': int(path_info.loc[i, 'question_minor_no']) if 'question_minor_no' in path_info.columns else 0,
+                'file_path': path_info.loc[i, 'file_path'] if 'file_path' in path_info.columns else None,
+                'file_name': path_info.loc[i, 'file_name'] if 'file_name' in path_info.columns else None,
+                'file_content': path_info.loc[i, 'file_content'] if 'file_content' in path_info.columns else None,
             }
             
-            # CLAP_A
             if assess_type.upper() == 'CLAP_A':
                 if question_cd == 'LTN_RPT':
                     ltn_rpt_files.append(file_info)
@@ -165,8 +179,6 @@ def model_process(path_info, api_key=None):
                     say_ani_files.append(file_info)
                 elif question_cd == 'TALK_PIC':
                     talk_pic_files.append(file_info)
-            
-            # CLAP_D
             elif assess_type.upper() == 'CLAP_D':
                 if question_cd == 'AH_SOUND':
                     ah_sound_files.append(file_info)
@@ -175,20 +187,41 @@ def model_process(path_info, api_key=None):
                 elif question_cd == 'TALK_CLEAN':
                     talk_clean_files.append(file_info)
         
-        # 결과 저장용
         fin_scores = {}
         
-        # LTN_RPT 모델
+        def resolve_audio_path(file_info):
+            local_path = file_info.get("file_path")
+            if local_path:
+                if not os.path.exists(local_path):
+                    raise FileNotFoundError(f"파일을 찾을 수 없습니다: {local_path}")
+                return local_path, False
+            content_b64 = file_info.get("file_content")
+            if content_b64:
+                try:
+                    data = base64.b64decode(content_b64)
+                except Exception as e:
+                    raise ValueError(f"file_content 디코딩 실패: {e}")
+                suffix = ""
+                fname = file_info.get("file_name") or ""
+                if "." in fname:
+                    suffix = os.path.splitext(fname)[1]
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=suffix or ".wav")
+                with open(temp_file.name, "wb") as f:
+                    f.write(data)
+                return temp_file.name, True
+            temp_path = download_file_from_db(api_key=api_key, **file_info)
+            return temp_path, True
+
         if len(ltn_rpt_files) > 0:
             start_time = time.time()
             try:
                 ltn_rpt = get_ltn_rpt()
-                # 파일 다운로드
                 file_paths = []
                 for file_info in ltn_rpt_files:
-                    temp_path = download_file_from_db(api_key=api_key, **file_info)
+                    temp_path, should_cleanup = resolve_audio_path(file_info)
                     file_paths.append(temp_path)
-                    temp_files.append(temp_path)
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
                 ltn_rpt_result = ltn_rpt.predict_score(file_paths)
                 fin_scores['LTN_RPT'] = int(ltn_rpt_result)
@@ -197,15 +230,15 @@ def model_process(path_info, api_key=None):
                 logger.error(f"LTN_RPT 모델 실행 중 오류 발생: {e}")
                 fin_scores['LTN_RPT'] = 0
         
-        # GUESS_END 모델
         if len(guess_end_files) > 0:
             start_time = time.time()
             try:
                 guess_end = get_guess_end()
                 temp = []
                 for idx, file_info in enumerate(guess_end_files):
-                    temp_path = download_file_from_db(api_key=api_key, **file_info)
-                    temp_files.append(temp_path)
+                    temp_path, should_cleanup = resolve_audio_path(file_info)
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                     temp.append(guess_end.predict_guess_end_score(temp_path, idx))
                 
                 guess_end_result = sum(temp)
@@ -215,17 +248,16 @@ def model_process(path_info, api_key=None):
                 logger.error(f"GUESS_END 모델 실행 중 오류 발생: {e}")
                 fin_scores['GUESS_END'] = 0
         
-        # SAY_OBJ 모델
         if len(say_obj_files) > 0:
             start_time = time.time()
             try:
                 say_obj = get_say_obj()
-                # 6번째(rainbow), 9번째(swing) 파일 찾기
                 file_paths = []
                 for file_info in say_obj_files:
-                    temp_path = download_file_from_db(api_key=api_key, **file_info)
+                    temp_path, should_cleanup = resolve_audio_path(file_info)
                     file_paths.append(temp_path)
-                    temp_files.append(temp_path)
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
                 if len(file_paths) >= 9:
                     say_obj_result = say_obj.predict_say_object_total(file_paths[5], file_paths[8])
@@ -237,13 +269,13 @@ def model_process(path_info, api_key=None):
                 logger.error(f"SAY_OBJ 모델 실행 중 오류 발생: {e}")
                 fin_scores['SAY_OBJ'] = 0
         
-        # SAY_ANI 모델
         if len(say_ani_files) > 0:
             start_time = time.time()
             try:
                 say_ani = get_say_ani()
-                temp_path = download_file_from_db(api_key=api_key, **say_ani_files[0])
-                temp_files.append(temp_path)
+                temp_path, should_cleanup = resolve_audio_path(say_ani_files[0])
+                if should_cleanup:
+                    temp_files.append(temp_path)
                 
                 say_ani_result = say_ani.score_audio(temp_path)
                 fin_scores['SAY_ANI'] = int(say_ani_result)
@@ -252,13 +284,13 @@ def model_process(path_info, api_key=None):
                 logger.error(f"SAY_ANI 모델 실행 중 오류 발생: {e}")
                 fin_scores['SAY_ANI'] = 0
         
-        # TALK_PIC 모델
         if len(talk_pic_files) > 0:
             start_time = time.time()
             try:
                 talk_pic = get_talk_pic()
-                temp_path = download_file_from_db(api_key=api_key, **talk_pic_files[0])
-                temp_files.append(temp_path)
+                temp_path, should_cleanup = resolve_audio_path(talk_pic_files[0])
+                if should_cleanup:
+                    temp_files.append(temp_path)
                 
                 talk_pic_result = talk_pic.score_audio(temp_path)
                 fin_scores['TALK_PIC'] = int(talk_pic_result)
@@ -267,13 +299,13 @@ def model_process(path_info, api_key=None):
                 logger.error(f"TALK_PIC 모델 실행 중 오류 발생: {e}")
                 fin_scores['TALK_PIC'] = 0
         
-        # AH_SOUND 모델
         if len(ah_sound_files) > 0:
             start_time = time.time()
             try:
                 ah_sound = get_ah_sound()
-                temp_path = download_file_from_db(api_key=api_key, **ah_sound_files[0])
-                temp_files.append(temp_path)
+                temp_path, should_cleanup = resolve_audio_path(ah_sound_files[0])
+                if should_cleanup:
+                    temp_files.append(temp_path)
                 
                 ah_sound_result = round(ah_sound.analyze_pitch_stability(temp_path), 2)
                 fin_scores['AH_SOUND'] = ah_sound_result
@@ -282,7 +314,6 @@ def model_process(path_info, api_key=None):
                 logger.error(f"AH_SOUND 모델 실행 중 오류 발생: {e}")
                 fin_scores['AH_SOUND'] = 0
         
-        # PTK_SOUND 모델
         if len(ptk_sound_files) > 0:
             start_time = time.time()
             try:
@@ -291,9 +322,10 @@ def model_process(path_info, api_key=None):
                 
                 file_paths = []
                 for file_info in ptk_sound_files:
-                    temp_path = download_file_from_db(api_key=api_key, **file_info)
+                    temp_path, should_cleanup = resolve_audio_path(file_info)
                     file_paths.append(temp_path)
-                    temp_files.append(temp_path)
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
                 for i, path in enumerate(file_paths):
                     if i < 3:
@@ -322,19 +354,19 @@ def model_process(path_info, api_key=None):
                 fin_scores['K_SOUND'] = 0
                 fin_scores['PTK_SOUND'] = 0
         
-        # TALK_CLEAN 모델
         if len(talk_clean_files) > 0:
             start_time = time.time()
             try:
                 talk_clean = get_talk_clean()
                 file_items = []
                 for file_info in talk_clean_files:
-                    temp_path = download_file_from_db(api_key=api_key, **file_info)
+                    temp_path, should_cleanup = resolve_audio_path(file_info)
                     file_items.append({
                         "path": temp_path,
                         "question_no": file_info['question_no']
                     })
-                    temp_files.append(temp_path)
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
                 talk_clean_result = talk_clean.main(file_items)
                 fin_scores['TALK_CLEAN'] = int(talk_clean_result)
@@ -349,7 +381,6 @@ def model_process(path_info, api_key=None):
         logger.error(f"모델링 중 오류 발생: {e}")
         raise
     finally:
-        # 임시 파일 정리
         for temp_file in temp_files:
             try:
                 if os.path.exists(temp_file):

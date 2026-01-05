@@ -1,8 +1,8 @@
--- MySQL dump 10.13  Distrib 8.0.43, for Win64 (x86_64)
+-- MySQL dump 10.13  Distrib 8.0.43, for macos15 (arm64)
 --
 -- Host: localhost    Database: clap
 -- ------------------------------------------------------
--- Server version	8.0.43
+-- Server version	9.4.0
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -40,7 +40,6 @@ CREATE TABLE `assess_score_allocation` (
 
 LOCK TABLES `assess_score_allocation` WRITE;
 /*!40000 ALTER TABLE `assess_score_allocation` DISABLE KEYS */;
-INSERT INTO `assess_score_allocation` VALUES ('CLAP_A','GUESS_END',1,2.0,'겨울은 춥고, 여름은','2025-08-07 16:44:21',NULL),('CLAP_A','GUESS_END',2,2.0,'코끼리는 크고, 개미는','2025-08-07 16:44:21',NULL),('CLAP_A','GUESS_END',3,2.0,'가는 말이 고와야 오는 말이','2025-08-07 16:44:21',NULL),('CLAP_A','GUESS_END',4,2.0,'식초는 시고, 꿀은','2025-08-07 16:44:21',NULL),('CLAP_A','GUESS_END',5,2.0,'지우개로 글자를','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',1,2.0,'나비','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',2,2.0,'피아노','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',3,2.0,'바람개비','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',4,4.0,'뜨거운 여름','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',5,6.0,'바다 같이 넓은 마음','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',6,8.0,'남의 떡이 커 보인다','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',7,8.0,'바스를 타고 집에 갔다','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',8,10.0,'비 오는 날에는 우산을 쓴다','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',9,14.0,'냉장고에 잘 익은 배가 두 개 있다','2025-08-07 16:44:21',NULL),('CLAP_A','LTN_RPT',10,12.0,'주말에 친구들과 기차를 타고 대구에 갔다','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',1,2.0,'모자','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',2,2.0,'포도','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',3,2.0,'해바라기','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',4,2.0,'태극기','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',5,2.0,'나무','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',6,2.0,'무지개','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',7,2.0,'기차','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',8,2.0,'비행기','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',9,2.0,'그네','2025-08-07 16:44:21',NULL),('CLAP_A','SAY_OBJ',10,2.0,'신발','2025-08-07 16:44:21',NULL),('CLAP_D','READ_CLEAN',1,15.0,'우리나라의 봄은 싱그럽다.참새는 짹짹 지저귀고, 푸른 새싹은 꿈틀꿈틀 피어난다.','2025-08-07 16:44:40',NULL),('CLAP_D','READ_CLEAN',2,16.0,'아이들이 수영장에서 물놀이를 하고 있다.첨벙첨벙 물장구를 치며 장난치고 있다.','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',1,3.0,'나비','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',2,2.0,'포도','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',3,1.0,'기타','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',4,2.0,'수갑','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',5,2.0,'가위','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',6,3.0,'모기','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',7,2.0,'칼','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',8,2.0,'꽁치','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',9,2.0,'돼지','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',10,3.0,'택시','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',11,2.0,'호미','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',12,1.0,'비행기','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',13,3.0,'레몬','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',14,2.0,'주사기','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',15,2.0,'짬뽕','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',16,2.0,'빨대','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',17,2.0,'바퀴','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',18,1.0,'쓰레기통','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',19,2.0,'옷걸이','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',20,3.0,'책장','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',21,3.0,'떡국','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',22,3.0,'바구니','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',23,1.0,'열쇠','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',24,1.0,'방패','2025-08-07 16:44:40',NULL),('CLAP_D','TALK_CLEAN',25,2.0,'얼음','2025-08-07 16:44:40',NULL);
 /*!40000 ALTER TABLE `assess_score_allocation` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -53,4 +52,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-08-22 12:56:31
+-- Dump completed on 2026-01-01 20:50:47

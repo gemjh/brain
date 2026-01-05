@@ -30,7 +30,13 @@ CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "api_base.json"
 
 
 def _get_api_base_url() -> str:
-    """config/api_base.json 우선, 없으면 .env"""
+    """환경변수(.env) 우선, 없으면 config/api_base.json"""
+    # 1순위: .env / 환경 변수
+    env_url = os.getenv("API_BASE_URL", "").strip()
+    if env_url:
+        return env_url
+
+    # 2순위: config/api_base.json
     try:
         if CONFIG_PATH.exists():
             with CONFIG_PATH.open("r", encoding="utf-8") as f:
@@ -39,11 +45,21 @@ def _get_api_base_url() -> str:
                 if url:
                     return url
     except Exception as e:
-        logger.warning(f"api_base.json 로드 실패, .env 사용: {e}")
-    return os.getenv("API_BASE_URL", "http://localhost:8000/api/v1").strip()
+        logger.warning(f"api_base.json 로드 실패, 기본값 사용: {e}")
 
+    # 3순위: 기본값
+    return "http://localhost:8000/api/v1"
 
-API_BASE_URL = _get_api_base_url()
+def _normalize_url(url: str) -> str:
+    """스킴이 없으면 http:// 를 붙여 requests 에러(No connection adapters) 방지"""
+    url = url.strip()
+    if not url:
+        return url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return f"http://{url}"
+
+API_BASE_URL = _normalize_url(_get_api_base_url())
 
 # 검사 타입 코드 매핑
 clap_A_cd = {'3':'LTN_RPT', '4':'GUESS_END', '5':'SAY_OBJ', '6':'SAY_ANI', '7':'TALK_PIC'}
@@ -398,15 +414,19 @@ def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list
     files_data = []
 
     # 폴더명이 숫자만 있을 경우 두 폴더 중 작은 값을 CLAP_A, 큰 값을 CLAP_D로 매핑
-    all_folders = [f for f in os.listdir(target_path) if os.path.isdir(os.path.join(target_path, f))]
+    all_folders = [
+        f for f in os.listdir(target_path)
+        if os.path.isdir(os.path.join(target_path, f)) and not f.startswith("__MAC")
+    ]
     # 유효 폴더 수가 2개가 아니면 오류
     if len(all_folders) != 2:
         raise ValueError(f"압축 내부 최상위 폴더는 2개(CLAP_A/CLAP_D)여야 합니다. 현재 {len(all_folders)}개 발견됨: {all_folders}")
 
     numeric_folders = sorted([f for f in all_folders if f.isdigit()], key=lambda x: int(x))
     numeric_mapping = {}
-    numeric_mapping[numeric_folders[0]] = 'CLAP_A'
-    numeric_mapping[numeric_folders[-1]] = 'CLAP_D'
+    if len(numeric_folders) >= 2:
+        numeric_mapping[numeric_folders[0]] = 'CLAP_A'
+        numeric_mapping[numeric_folders[-1]] = 'CLAP_D'
 
     # 명시적 폴더명 매핑과 숫자 매핑을 합침
     folder_mapping = {

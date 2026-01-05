@@ -55,6 +55,7 @@ streamlit_env/
 *.db
 *.sqlite
 *.sqlite3
+.mysql/
 
 # 로그 파일들
 *.log

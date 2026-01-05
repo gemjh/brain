@@ -1,8 +1,8 @@
--- MySQL dump 10.13  Distrib 8.0.43, for Win64 (x86_64)
+-- MySQL dump 10.13  Distrib 8.0.43, for macos15 (arm64)
 --
 -- Host: localhost    Database: clap
 -- ------------------------------------------------------
--- Server version	8.0.43
+-- Server version	9.4.0
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -19,7 +19,7 @@
 -- Table structure for table `assess_score_t`
 --
 
-DROP TABLE IF EXISTS `assess_score_t`;-- 
+DROP TABLE IF EXISTS `assess_score_t`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `assess_score_t` (
@@ -44,7 +44,6 @@ CREATE TABLE `assess_score_t` (
 
 LOCK TABLES `assess_score_t` WRITE;
 /*!40000 ALTER TABLE `assess_score_t` DISABLE KEYS */;
-INSERT INTO `assess_score_t` VALUES ('1001',1,'CLAP_A','GUESS_END',0,0,10.0,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_A','LTN_RPT',0,0,55.0,NULL,'Y','2025-08-21 13:44:25','2025-08-22 10:57:26'),('1001',1,'CLAP_A','SAY_ANI',0,0,20.0,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_A','SAY_OBJ',0,0,18.0,NULL,'Y','2025-08-21 13:44:25','2025-08-22 10:57:26'),('1001',1,'CLAP_A','TALK_PIC',0,0,30.0,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_D','AH_SOUND',0,0,9.5,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_D','K_SOUND',0,0,4.0,NULL,'Y','2025-08-22 10:57:26',NULL),('1001',1,'CLAP_D','P_SOUND',0,0,3.3,NULL,'Y','2025-08-22 10:57:26',NULL),('1001',1,'CLAP_D','PTK_SOUND',0,0,1.6,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_D','READ_CLEAN',0,0,18.0,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1001',1,'CLAP_D','T_SOUND',0,0,4.2,NULL,'Y','2025-08-22 10:57:26',NULL),('1001',1,'CLAP_D','TALK_CLEAN',0,0,25.0,NULL,'Y','2025-08-21 17:07:56','2025-08-22 10:57:26'),('1003',1,'CLAP_A','LTN_RPT',0,0,50.0,NULL,'Y','2025-08-21 13:44:25',NULL),('1003',1,'CLAP_A','SAY_OBJ',0,0,40.0,NULL,'Y','2025-08-21 13:44:25',NULL);
 /*!40000 ALTER TABLE `assess_score_t` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
@@ -57,4 +56,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2025-08-22 12:56:31
+-- Dump completed on 2026-01-01 20:50:54

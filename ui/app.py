@@ -23,7 +23,7 @@ import streamlit as st
 # 페이지 설정
 st.set_page_config(
     page_title="CLAP",
-    page_icon="👋",
+    page_icon="👏",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -104,7 +104,6 @@ try:
 
     from services.auth_service import authenticate_user
 
-    from services.upload_service import zip_upload
     apply_custom_css()
 
 except ImportError as e:
@@ -215,42 +214,42 @@ def main():
                     st.warning("API Key를 입력하세요.")
             col1, col2 = st.columns([2.5, 7.5])
             with col1:
-                # zip파일이 등록되면 파일 업로드 버튼 보임
-                if uploaded_file is not None:
-                    btn_apply = st.button("파일 업로드", key="upload_btn")
+                # SQL에 저장된 검사 데이터로 직접 모델링
+                btn_apply = st.button("모델링 실행", key="run_modeling_btn")
                     
     if btn_apply:
         st.session_state.path_info=loading(btn_apply,patient_id,uploaded_file)
         st.session_state.upload_completed=True
         st.rerun()
 
-def loading(btn_apply,patient_id,uploaded_file):
-    # ------------- zip파일 처리 -----------------
-    order_num,path_info,api_key=zip_upload(btn_apply,patient_id,uploaded_file)
-    if path_info is None or order_num is None:
-        st.error("업로드 중 오류가 발생했습니다. 로그를 확인하세요.")
-        return None
-    st.session_state.order_num = order_num
-    st.session_state.api_key = api_key
+    def loading(btn_apply, patient_id, uploaded_file):
+        # SQL/DB에 이미 저장된 파일 메타데이터를 가져와 모델링 실행
+        api_key = st.session_state.get("api_key") or APIClient.get_api_key_by_patient(patient_id)
+        if not api_key:
+            st.error("API Key를 찾을 수 없습니다.")
+            return None
 
-    # 업로드/저장까지 완료된 시점에 바로 알림 표시
-    if st.session_state.api_key:
-        st.info(f"파일을 업로드했습니다. access key: `{st.session_state.api_key}`")
-    else:
-        st.info("파일을 업로드했습니다.")
+        st.session_state.api_key = api_key
 
-    # ------------- 모델링 및 저장: 별도 스레드로 처리하여 UI를 바로 반환 -------------
-    def _run_modeling():
-        try:
-            fin_scores = model_process(path_info, api_key)
-            from services.db_service import save_scores_to_db
-            save_scores_to_db(fin_scores, order_num, patient_id)
-            logging.info("모델링 및 점수 저장 완료")
-        except Exception as e:
-            logging.error(f"모델링/점수 저장 중 오류: {e}")
+        order_num, path_info = fetch_existing_path_info(patient_id, api_key=api_key)
+        if path_info is None or order_num is None:
+            st.error("DB에서 파일 정보를 찾을 수 없습니다.")
+            return None
 
-    threading.Thread(target=_run_modeling, daemon=True).start()
-    return path_info
+        st.session_state.order_num = order_num
+
+        # ------------- 모델링 및 저장: 별도 스레드로 처리하여 UI를 바로 반환 -------------
+        def _run_modeling():
+            try:
+                fin_scores = model_process(path_info, api_key)
+                from services.db_service import save_scores_to_db
+                save_scores_to_db(fin_scores, order_num, patient_id)
+                logging.info("모델링 및 점수 저장 완료")
+            except Exception as e:
+                logging.error(f"모델링/점수 저장 중 오류: {e}")
+
+        threading.Thread(target=_run_modeling, daemon=True).start()
+        return path_info
     
 
 if __name__ == "__main__":

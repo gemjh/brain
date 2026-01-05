@@ -33,10 +33,18 @@ def get_assessments(
                 AND lst.ORDER_NUM = flst.ORDER_NUM
             WHERE flst.USE_YN = 'Y'
                 AND lst.PATIENT_ID = :patient_id
+                -- 모든 문항에 점수가 채워진 검사만 노출
                 AND EXISTS (
                     SELECT 1 FROM assess_score s
                     WHERE s.PATIENT_ID = lst.PATIENT_ID
                       AND s.ORDER_NUM = lst.ORDER_NUM
+                      AND s.SCORE IS NOT NULL
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM assess_score s_null
+                    WHERE s_null.PATIENT_ID = lst.PATIENT_ID
+                      AND s_null.ORDER_NUM = lst.ORDER_NUM
+                      AND (s_null.SCORE IS NULL)
                 )
         """
         
