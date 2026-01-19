@@ -46,11 +46,11 @@ def get_report(
                 sc.PN,
                 sc.ORDER_NUM,
                 sc.ASSESS_TYPE,
-                sc.EPISODE_CODE,
+                sc.QUESTION_CD,
                 sc.QUESTION_NO,
                 sc.FILENAME,
                 sc.SCORE,
-                sc.CREATED_AT
+                sc.FILENAME
             FROM score sc
             WHERE sc.PN = :patient_id
               AND (:assess_type IS NULL OR sc.ASSESS_TYPE = :assess_type)
@@ -74,11 +74,10 @@ def get_report(
                 "patient_number": row["PN"],
                 "order_num": row["ORDER_NUM"],
                 "assess_type": row["ASSESS_TYPE"],
-                "question_cd": row["EPISODE_CODE"],
+                "question_cd": row["QUESTION_CD"],
                 "question_no": row["QUESTION_NO"],
                 "filename": row["FILENAME"],
-                "score": row["SCORE"],
-                "create_date": row["CREATED_AT"]
+                "score": row["SCORE"]
             }
             for row in rows
         ]

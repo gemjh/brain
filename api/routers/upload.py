@@ -90,7 +90,7 @@ def require_api_key_for_patient(
     return api_key
 
 
-@router.get("/keys/{api_key}/patient")
+@router.get("/keys/patient")
 def resolve_api_key(api_key: str, db: Session = Depends(get_db)):
     """API Key로 매핑된 환자 ID 조회"""
     patient_id = resolve_api_key_db(api_key, db)
@@ -99,7 +99,7 @@ def resolve_api_key(api_key: str, db: Session = Depends(get_db)):
     return {"patient_id": patient_id}
 
 
-@router.get("/keys/patient/{patient_id}")
+@router.get("/keys/{patient_id}")
 def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
     """환자 ID로 API Key 조회, 없으면 새로 발급하여 반환"""
     row = db.execute(
@@ -187,28 +187,24 @@ def get_next_order_num(db: Session, patient_id: str) -> int:
 # Endpoints
 # ============================================
 
-@router.get("/keys/generate")
-def generate_client_key():
-    """
-    클라이언트에서 API 접근 시 사용할 고유 키 생성
-    - UTC 타임스탬프(마이크로초) + 랜덤 6자리 영숫자 조합
-    """
-    return {"detail": "키 발급은 업로드 시 자동 생성됩니다."}
+# @router.get("/keys/generate")
+# def generate_client_key():
+#     """
+#     클라이언트에서 API 접근 시 사용할 고유 키 생성
+#     - UTC 타임스탬프(마이크로초) + 랜덤 6자리 영숫자 조합
+#     """
+#     return {"detail": "키 발급은 업로드 시 자동 생성됩니다."}
 
 
 @router.post("/assessments/files/upload")
-
-
 async def upload_files_with_metadata(
     id: str = Form(...),
     patient_id: str = Form(..., alias="pn"),
     order_num: int = Form(...),
     assess_type: str = Form(...),
     question_cd: str = Form(...),
-    question_no: int = Form(...),
-    question_minor_no: int = Form(...),
-    score: float = Form(...),
     filename: str = Form(...),
+    score: float = Form(...),
     db: Session = Depends(get_db),
 ):
     """
@@ -244,11 +240,11 @@ async def upload_files_with_metadata(
             )
         
         query = text("""
-            INSERT INTO SCORE (
-                ID, PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, QUESTION_MINOR_NO, FILENAME 
+            INSERT INTO audio_storage (
+                ID, PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, QUESTION_MINOR_NO, SCORE 
             ) VALUES (
                 :id, :patient_id, :order_num, :assess_type, :question_cd,
-                :question_no, :question_minor_no, :filename
+                :question_no, :question_minor_no, :score
             )
         """)
         
@@ -261,7 +257,6 @@ async def upload_files_with_metadata(
             'question_no': question_no,
             'question_minor_no': question_minor_no,
             'score': score,
-            'filename': filename,
         })
         db.commit()
         
@@ -273,6 +268,33 @@ async def upload_files_with_metadata(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
+
+#  {
+#     "detail":[
+#         {
+#             "type":"missing",
+#             "loc":[
+#                 "body","scores",0,"patient_id"
+#                 ],
+#                 "msg":"Field required",
+#                 "input":{
+#                     "assess_type":"CLAP_D",
+#                     "filename":"p_1_1.wav",
+#                     "id":1,
+#                     "order_num":1,
+#                     "pn":"1001",
+#                     "question_cd":"AH_SOUND",
+#                     "question_no":67,
+#                     "score":2.0    
+#                 }
+#                 },{
+#                     "type":"missing",
+#                     "loc":[
+#                         "body","scores",0,"question_minor_no"
+#                         ],
+#                     "msg":"Field required",
+#                     "input":{
+#                         "assess_type":"CLAP_D","filename":"p_1_1.wav","id":1,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}},{"type":"missing","loc":["body","scores",1,"patient_id"],"msg":"Field required","input":{"assess_type":"CLAP_D","filename":"p_1_1.wav","id":2,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}},{"type":"missing","loc":["body","scores",1,"question_minor_no"],"msg":"Field required","input":{"assess_type":"CLAP_D","filename":"p_1_1.wav","id":2,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}}]}
 
 
 @router.post("/assessments/files/bulk-upload")
