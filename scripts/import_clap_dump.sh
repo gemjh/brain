@@ -9,7 +9,7 @@ ENV_FILE="$ROOT_DIR/.env"
 
 DB_HOST="${db_host:-localhost}"
 DB_PORT="${db_port:-3306}"
-DB_NAME="${db_database:-clap}"
+DB_NAME="${db_database:-clap_tablet}"
 DB_USER="${db_username:-root}"
 DB_PASS="${db_password:-}"
 

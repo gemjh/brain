@@ -88,47 +88,6 @@ def save_scores_to_db(fin_scores: dict, order_num: int, patient_id: str) -> bool
         return False
 
 
-def get_reports(patient_id: str, test_type: str = None) -> pd.DataFrame:
-    """
-    리포트 조회 - API 버전
-    
-    Args:
-        patient_id: 환자 ID
-        test_type: 검사 타입 필터 (None이면 전체)
-    
-    Returns:
-        DataFrame: 검사 목록
-    """
-    try:
-        # ============================================
-        # 핵심 변경: DB 직접 조회 → API 호출
-        # ============================================
-        assessments = APIClient.get_assessments(patient_id, test_type)
-        
-        if not assessments:
-            pending = APIClient.get_pending_file_count(patient_id)
-            logger.warning(f"검사 기록이 없습니다: {patient_id} (미진행 파일 {pending}건)")
-            return pd.DataFrame()
-        
-        df = pd.DataFrame(assessments)
-        
-        # 컬럼명 확인 및 정렬
-        expected_cols = [
-            'order_num', 'patient_id', 'patient_name', 'age', 'sex',
-            'assess_type', 'main_path', 'assess_date', 'request_org', 'assess_person'
-        ]
-        
-        # 컬럼이 모두 있는지 확인
-        if not all(col in df.columns for col in expected_cols):
-            logger.warning(f"일부 컬럼이 누락되었습니다: {df.columns.tolist()}")
-        
-        return df
-        
-    except Exception as e:
-        logger.error(f"리포트 조회 중 오류 발생: {e}")
-        return pd.DataFrame()
-
-
 def get_patient_info(patient_id: str) -> dict:
     """
     환자 정보 조회 - API 버전
@@ -174,24 +133,3 @@ def get_assessment_scores(patient_id: str, order_num: int, assess_type: str = No
         logger.error(f"점수 조회 중 오류 발생: {e}")
         st.error(f"점수 조회 실패: {str(e)}")
         return pd.DataFrame()
-
-
-# ============================================
-# 하위 호환성: 기존 함수명 유지 (deprecated)
-# ============================================
-def get_reports_local(patient_id: str, test_type: str = None) -> pd.DataFrame:
-    """
-    DEPRECATED: get_reports() 사용을 권장합니다.
-    로컬 DB 접근 방식은 더 이상 지원되지 않습니다.
-    """
-    logger.warning("get_reports_local()은 deprecated 되었습니다. get_reports()를 사용하세요.")
-    return get_reports(patient_id, test_type)
-
-
-def get_db_modules():
-    """
-    DEPRECATED: DB 직접 접근은 더 이상 지원되지 않습니다.
-    API를 통한 접근만 가능합니다.
-    """
-    logger.error("get_db_modules()는 더 이상 지원되지 않습니다. API를 사용하세요.")
-    raise NotImplementedError("DB 직접 접근은 지원되지 않습니다. API를 사용하세요.")

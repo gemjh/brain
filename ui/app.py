@@ -94,9 +94,6 @@ try:
         print("현재 운영체제는 윈도우입니다.")
     else: WINOS = False
 
-    from services.db_service import (
-        get_reports
-    )
     from services.api_client import APIClient
     from utils.style_utils import (
         apply_custom_css
@@ -119,7 +116,7 @@ spinner.__exit__(None, None, None)
 def fetch_existing_path_info(patient_id: str, api_key: Optional[str] = None):
     """기존 업로드 데이터의 파일 정보를 DB에서 조회"""
     try:
-        assessments = APIClient.get_assessments(patient_id, api_key=api_key)
+        assessments = APIClient.get_report(patient_id, api_key=api_key)
         if not assessments:
             return None, None
         

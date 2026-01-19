@@ -20,14 +20,14 @@ def issue_api_key(patient_id: str, db: Session) -> str:
     """환자별 API Key 재사용, 없으면 발급 후 DB에 저장"""
     row = db.execute(
         text(
-            "SELECT API_KEY FROM patient_api_key WHERE PATIENT_ID = :patient_id"
+            "SELECT API_KEY FROM api_key WHERE PATIENT_ID = :patient_id"
         ),
         {"patient_id": patient_id}
     ).fetchone()
     if row and row[0]:
         key = row[0]
         db.execute(
-            text("UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
+            text("UPDATE api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
             {"patient_id": patient_id}
         )
         db.commit()
@@ -39,7 +39,7 @@ def issue_api_key(patient_id: str, db: Session) -> str:
     db.execute(
         text(
             """
-            INSERT INTO patient_api_key (PATIENT_ID, API_KEY, ISSUED_AT, LAST_USED_AT)
+            INSERT INTO api_key (PATIENT_ID, API_KEY, ISSUED_AT, LAST_USED_AT)
             VALUES (:patient_id, :api_key, NOW(), NOW())
             ON DUPLICATE KEY UPDATE API_KEY = VALUES(API_KEY), LAST_USED_AT = NOW()
             """
@@ -56,7 +56,7 @@ def resolve_api_key_db(api_key: str, db: Session) -> Optional[str]:
         text(
             """
             SELECT PATIENT_ID
-            FROM patient_api_key
+            FROM api_key
             WHERE API_KEY = :api_key
             """
         ),
@@ -66,7 +66,7 @@ def resolve_api_key_db(api_key: str, db: Session) -> Optional[str]:
         # 마지막 사용 시각 업데이트
         db.execute(
             text(
-                "UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE API_KEY = :api_key"
+                "UPDATE api_key SET LAST_USED_AT = NOW() WHERE API_KEY = :api_key"
             ),
             {"api_key": api_key}
         )
@@ -106,7 +106,7 @@ def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
         text(
             """
             SELECT API_KEY
-            FROM patient_api_key
+            FROM api_key
             WHERE PATIENT_ID = :patient_id
             """
         ),
@@ -116,7 +116,7 @@ def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
     if row and row[0]:
         api_key = row[0]
         db.execute(
-            text("UPDATE patient_api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
+            text("UPDATE api_key SET LAST_USED_AT = NOW() WHERE PATIENT_ID = :patient_id"),
             {"patient_id": patient_id}
         )
         db.commit()
@@ -131,12 +131,9 @@ def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
 # ============================================
 class PatientAssessmentInfo(BaseModel):
     patient_id: str
-    order_num: int
     request_org: Optional[str] = None
     assess_date: Optional[str] = None
     assess_person: Optional[str] = None
-    age: Optional[int] = None
-    sex: Optional[str] = None
     edu: Optional[int] = None
     excluded: str = '0'
     post_stroke_date: Optional[str] = None
@@ -176,6 +173,16 @@ class ScoreBulk(BaseModel):
     scores: List[ScoreData]
 
 
+def get_next_order_num(db: Session, patient_id: str) -> int:
+    """해당 환자의 다음 order_num 반환 (기본 1)"""
+    query = text("""
+        SELECT IFNULL(MAX(order_num) + 1, 1)
+        FROM SCORE
+        WHERE PN = :patient_id
+    """)
+    return int(db.execute(query, {"patient_id": patient_id}).scalar() or 1)
+
+
 # ============================================
 # Endpoints
 # ============================================
@@ -188,116 +195,46 @@ def generate_client_key():
     """
     return {"detail": "키 발급은 업로드 시 자동 생성됩니다."}
 
-@router.get("/patients/{patient_id}/order")
-def get_order_num(
-    patient_id: str,
-    db: Session = Depends(get_db),
-):
-    """환자의 수행회차 조회"""
-    try:
-        query = text("""
-            SELECT IFNULL(MAX(order_num) + 1, 1) 
-            FROM assess_lst 
-            WHERE PATIENT_ID = :patient_id
-        """)
-        result = db.execute(query, {"patient_id": patient_id}).fetchone()
-        return {"order_num": result[0]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"수행회차 조회 실패: {str(e)}")
-
-
-@router.post("/assessments/patient-info")
-def save_patient_assessment(
-    data: PatientAssessmentInfo,
-    db: Session = Depends(get_db),
-    api_key: Optional[str] = Depends(
-        lambda: None  # patient-info 저장은 키가 없어도 진행 (초기 업로드)
-    )
-):
-    """환자 검사 정보 저장"""
-    try:
-        params = {
-            'patient_id': data.patient_id,
-            'order_num': data.order_num,
-            'request_org': data.request_org,
-            'assess_date': data.assess_date,
-            'assess_person': data.assess_person,
-            'age': data.age,
-            'edu': data.edu,
-            'excluded': data.excluded,
-            'post_stroke_date': data.post_stroke_date,
-            'diagnosis': data.diagnosis,
-            'diagnosis_etc': data.diagnosis_etc,
-            'stroke_type': data.stroke_type,
-            'lesion_location': data.lesion_location,
-            'hemiplegia': data.hemiplegia,
-            'hemineglect': data.hemineglect,
-            'visual_field_defect': data.visual_field_defect,
-        }
-        
-        query = text("""
-            INSERT INTO assess_lst (
-                PATIENT_ID, ORDER_NUM, REQUEST_ORG, ASSESS_DATE, ASSESS_PERSON,
-                AGE, EDU, EXCLUDED, POST_STROKE_DATE, DIAGNOSIS, DIAGNOSIS_ETC,
-                STROKE_TYPE, LESION_LOCATION, HEMIPLEGIA, HEMINEGLECT, VISUAL_FIELD_DEFECT
-            ) VALUES (
-                :patient_id, :order_num, :request_org, :assess_date, :assess_person,
-                :age, :edu, :excluded, :post_stroke_date, :diagnosis, :diagnosis_etc,
-                :stroke_type, :lesion_location, :hemiplegia, :hemineglect, :visual_field_defect
-            )
-        """)
-        
-        db.execute(query, params)
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"환자 검사 정보 저장 완료: {data.patient_id}",
-            "patient_id": data.patient_id,
-            "order_num": data.order_num,
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"환자 검사 정보 저장 실패: {str(e)}")
-
 
 @router.post("/assessments/files/upload")
+
+
 async def upload_files_with_metadata(
-    patient_id: str,
-    order_num: int,
-    assess_type: str,
-    question_cd: str,
-    question_no: int,
-    question_minor_no: int,
-    duration: float,
-    rate: int,
-    file: UploadFile = File(...),
+    id: str = Form(...),
+    patient_id: str = Form(..., alias="pn"),
+    order_num: int = Form(...),
+    assess_type: str = Form(...),
+    question_cd: str = Form(...),
+    question_no: int = Form(...),
+    question_minor_no: int = Form(...),
+    score: float = Form(...),
+    filename: str = Form(...),
     db: Session = Depends(get_db),
 ):
     """
     파일을 blob으로 저장 (단일 파일)
     wav, m4a 등 다양한 오디오 포맷 지원
-    
+
     Args:
-        patient_id: 환자 ID
-        order_num: 검사 회차
-        assess_type: 검사 유형 (CLAP_A, CLAP_D)
-        question_cd: 문항 코드
-        question_no: 문항 번호
-        question_minor_no: 하위 문항 번호
+        id: pk
+        order_num: 검사 인덱스 (evaluationId)
+        question_cd: 문항 코드 (episodeIndex)
+        file_name: 앱에서 전달된 파일명(p_1_0.wav)
         duration: 오디오 길이
         rate: 샘플링 레이트
+        creation_date: 앱에서 전달된 생성 시각
         file: 업로드 파일 (wav, m4a 등)
-        """
+    """
+    name_parts = filename.split("_")
+    question_no = int(name_parts[1])
+    question_minor_no = int(name_parts[2].split('.')[0])
+
     try:
-        # 업로드 시에는 인증 요구하지 않고 키를 새로 발급
+        # 업로드 시 인증 없이 키 발급
         api_key = issue_api_key(patient_id, db)
 
-        # 파일 읽기
-        file_content = await file.read()
-        
         # 파일 확장자 검증
-        file_ext = os.path.splitext(file.filename)[1].lower()
+        file_ext = os.path.splitext(filename)[1].lower()
         allowed_extensions = ['.wav', '.m4a', '.mp4', '.aac']
         
         if file_ext not in allowed_extensions:
@@ -307,36 +244,30 @@ async def upload_files_with_metadata(
             )
         
         query = text("""
-            INSERT INTO assess_file_lst (
-                PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, 
-                QUESTION_NO, QUESTION_MINOR_NO, FILE_NAME, 
-                DURATION, RATE, FILE_CONTENT
+            INSERT INTO SCORE (
+                ID, PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, QUESTION_MINOR_NO, FILENAME 
             ) VALUES (
-                :patient_id, :order_num, :assess_type, :question_cd,
-                :question_no, :question_minor_no, :file_name,
-                :duration, :rate, :file_content
+                :id, :patient_id, :order_num, :assess_type, :question_cd,
+                :question_no, :question_minor_no, :filename
             )
         """)
         
         db.execute(query, {
+            'id': id,
             'patient_id': patient_id,
             'order_num': order_num,
             'assess_type': assess_type,
             'question_cd': question_cd,
             'question_no': question_no,
             'question_minor_no': question_minor_no,
-            'file_name': file.filename,
-            'duration': duration,
-            'rate': rate,
-            'file_content': file_content
+            'score': score,
+            'filename': filename,
         })
         db.commit()
         
         return {
             "success": True,
-            "message": f"파일 저장 완료: {file.filename}",
-            "file_size": len(file_content),
-            "file_type": file_ext,
+            "message": "파일 저장 완료",
             "api_key": api_key
         }
     except Exception as e:
@@ -346,78 +277,51 @@ async def upload_files_with_metadata(
 
 @router.post("/assessments/files/bulk-upload")
 async def upload_files_bulk(
-    files: List[UploadFile] = File(...),
-    metadata: str = None,  # JSON 문자열로 메타데이터 전달
-    db: Session = Depends(get_db),
+    pn: str = Form(...),
+    evaluationId: str = Form(...),
+    audioFiles: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
 ):
     """
-    여러 파일을 한번에 blob으로 저장
-    
-    Args:
-        files: 업로드 파일 리스트
-        metadata: 파일별 메타데이터 (JSON 문자열)
+    여러 파일을 한 번에 업로드하여 BLOB으로 저장
     """
-    import json
-    
     try:
-        # 메타데이터 파싱
-        metadata_list = json.loads(metadata) if metadata else []
+        # API Key 발급
+        api_key = issue_api_key(pn, db)
         
-        if len(files) != len(metadata_list):
-            raise HTTPException(
-                status_code=400, 
-                detail="파일 개수와 메타데이터 개수가 일치하지 않습니다"
-            )
-        
-        api_key: Optional[str] = None
-        saved_files = []
-        
-        for file, meta in zip(files, metadata_list):
-            # 업로드 시 인증 요구하지 않음, 첫 파일 기준으로 키 발급
-            patient_id = meta['patient_id']
-            if api_key is None:
-                api_key = issue_api_key(patient_id, db)
-
+        uploaded_count = 0
+        for file in audioFiles:
+            # 파일을 바이너리(bytes)로 읽음
             file_content = await file.read()
             
+            # 파일 확장자 검증
+            file_ext = os.path.splitext(file.filename)[1].lower()
+            allowed_extensions = ['.wav', '.m4a', '.mp4', '.aac']
+            
+            if file_ext not in allowed_extensions:
+                continue  # 지원하지 않는 파일 형식은 건너뛰기
+            
+            # SQLAlchemy text()를 사용하여 쿼리 실행
             query = text("""
-                INSERT INTO assess_file_lst (
-                    PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, 
-                    QUESTION_NO, QUESTION_MINOR_NO, FILE_NAME, 
-                    DURATION, RATE, FILE_CONTENT
-                ) VALUES (
-                    :patient_id, :order_num, :assess_type, :question_cd,
-                    :question_no, :question_minor_no, :file_name,
-                    :duration, :rate, :file_content
-                )
+                INSERT INTO audio_storage (pn, order_num, filename, audio_blob)
+                VALUES (:pn, :order_num, :filename, :audio_blob)
             """)
             
             db.execute(query, {
-                'patient_id': meta['patient_id'],
-                'order_num': meta['order_num'],
-                'assess_type': meta['assess_type'],
-                'question_cd': meta['question_cd'],
-                'question_no': meta['question_no'],
-                'question_minor_no': meta['question_minor_no'],
-                'file_name': file.filename,
-                'duration': meta['duration'],
-                'rate': meta['rate'],
-                'file_content': file_content
-            })
-            
-            saved_files.append({
+                'pn': pn,
+                'order_num': evaluationId,
                 'filename': file.filename,
-                'size': len(file_content)
+                'audio_blob': file_content
             })
-        
+            uploaded_count += 1
+
         db.commit()
-        
         return {
             "success": True,
-            "message": f"{len(saved_files)}개 파일 저장 완료",
-            "files": saved_files,
+            "message": f"{uploaded_count}개 파일 DB 저장 완료",
             "api_key": api_key
         }
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
@@ -436,18 +340,13 @@ def get_assessment_files(
     try:
         query = text("""
             SELECT 
-                A.PATIENT_ID, A.ORDER_NUM, A.ASSESS_TYPE, A.QUESTION_CD,
+                A.PN, A.ORDER_NUM, A.ASSESS_TYPE, A.QUESTION_CD,
                 A.QUESTION_NO, A.FILE_NAME, A.DURATION, A.RATE,
                 LENGTH(A.FILE_CONTENT) as FILE_SIZE
-            FROM assess_file_lst A
-            INNER JOIN code_mast C 
-              ON C.CODE_TYPE = 'ASSESS_TYPE' 
-             AND A.ASSESS_TYPE = C.MAST_CD 
-             AND A.QUESTION_CD = C.SUB_CD
-            WHERE A.PATIENT_ID = :patient_id 
+            FROM score A
+            WHERE A.PN = :patient_id 
               AND A.ORDER_NUM = :order_num 
-              AND A.USE_YN = 'Y'
-            ORDER BY A.ASSESS_TYPE, C.ORDER_NUM, A.QUESTION_NO
+            ORDER BY A.ASSESS_TYPE, A.ORDER_NUM, A.QUESTION_NO
         """)
         
         result = db.execute(query, {
@@ -501,17 +400,14 @@ def download_file(
     from pydub import AudioSegment
     
     try:
-        # 같은 question_cd 파일이 여러 개 있으면 minor_no이 가장 큰 한 파일만 가져옴
         query = text("""
             SELECT FILE_CONTENT, FILE_NAME
-            FROM assess_file_lst
-            WHERE PATIENT_ID = :patient_id
+            FROM score
+            WHERE PN = :patient_id
               AND ORDER_NUM = :order_num
               AND QUESTION_CD = :question_cd
               AND QUESTION_NO = :question_no
-              AND USE_YN = 'Y'
             ORDER BY QUESTION_MINOR_NO DESC, CREATE_DATE DESC
-            LIMIT 1
         """)
         
         result = db.execute(query, {
@@ -584,77 +480,6 @@ def download_file(
         raise HTTPException(status_code=500, detail=f"파일 다운로드 실패: {str(e)}")
 
 
-@router.post("/assessments/{patient_id}/{order_num}/deduplicate")
-def handle_duplicate_files(
-    patient_id: str,
-    order_num: int,
-    db: Session = Depends(get_db),
-    _: str = Depends(require_api_key_for_patient)
-):
-    """중복 파일 처리 - QUESTION_MINOR_NO가 작은 것을 USE_YN='N'으로 설정"""
-    try:
-        check_query = text("""
-            SELECT PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, COUNT(*) as cnt
-            FROM assess_file_lst
-            WHERE PATIENT_ID = :patient_id 
-              AND ORDER_NUM = :order_num 
-              AND USE_YN = 'Y'
-            GROUP BY PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-            HAVING COUNT(*) >= 2
-        """)
-        
-        duplicates = db.execute(check_query, {
-            "patient_id": patient_id,
-            "order_num": order_num
-        }).fetchall()
-        
-        if not duplicates:
-            return {
-                "success": True,
-                "message": "중복 파일 없음",
-                "deactivated_count": 0
-            }
-        
-        update_query = text("""
-            WITH ranked_records AS (
-                SELECT *,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO
-                        ORDER BY QUESTION_MINOR_NO DESC, CREATE_DATE DESC
-                    ) AS rn
-                FROM assess_file_lst
-                WHERE PATIENT_ID = :patient_id 
-                  AND ORDER_NUM = :order_num 
-                  AND USE_YN = 'Y'
-            )
-            UPDATE assess_file_lst AS a
-            JOIN ranked_records AS r
-              ON a.PATIENT_ID = r.PATIENT_ID
-             AND a.ORDER_NUM = r.ORDER_NUM
-             AND a.ASSESS_TYPE = r.ASSESS_TYPE
-             AND a.QUESTION_CD = r.QUESTION_CD
-             AND a.QUESTION_NO = r.QUESTION_NO
-             AND a.QUESTION_MINOR_NO = r.QUESTION_MINOR_NO
-            SET a.USE_YN = CASE WHEN r.rn = 1 THEN 'Y' ELSE 'N' END
-        """)
-        
-        result = db.execute(update_query, {
-            "patient_id": patient_id,
-            "order_num": order_num
-        })
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"중복 파일 {len(duplicates)}건 처리 완료",
-            "duplicate_groups": len(duplicates),
-            "deactivated_count": result.rowcount
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"중복 파일 처리 실패: {str(e)}")
-
-
 @router.delete("/assessments/{patient_id}/{order_num}")
 def delete_assessment(
     patient_id: str,
@@ -666,15 +491,15 @@ def delete_assessment(
     try:
         params = {"patient_id": patient_id, "order_num": order_num}
         file_result = db.execute(
-            text("DELETE FROM assess_file_lst WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
             params
         )
         score_result = db.execute(
-            text("DELETE FROM assess_score_t WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
             params
         )
         lst_result = db.execute(
-            text("DELETE FROM assess_lst WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
+            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
             params
         )
         db.commit()
@@ -689,44 +514,6 @@ def delete_assessment(
         raise HTTPException(status_code=500, detail=f"데이터 롤백 실패: {str(e)}")
 
 
-@router.post("/assessments/{patient_id}/{order_num}/init-scores")
-def initialize_scores(
-    patient_id: str,
-    order_num: int,
-    db: Session = Depends(get_db),
-    _: str = Depends(require_api_key_for_patient)
-):
-    """점수 테이블 초기화"""
-    try:
-        query = text("""
-            INSERT INTO assess_score (
-                PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, 
-                QUESTION_NO, QUESTION_MINOR_NO, USE_YN
-            )
-            SELECT 
-                PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD,
-                QUESTION_NO, QUESTION_MINOR_NO, USE_YN
-            FROM assess_file_lst
-            WHERE PATIENT_ID = :patient_id 
-              AND ORDER_NUM = :order_num
-        """)
-        
-        result = db.execute(query, {
-            "patient_id": patient_id,
-            "order_num": order_num
-        })
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"점수 테이블 초기화 완료: {result.rowcount}건",
-            "initialized_count": result.rowcount
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"점수 테이블 초기화 실패: {str(e)}")
-
-
 @router.post("/scores/bulk")
 def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
     """점수 일괄 저장"""
@@ -737,8 +524,8 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
         for score in data.scores:
             check_query = text("""
                 SELECT COUNT(*) 
-                FROM assess_score
-                WHERE PATIENT_ID = :patient_id
+                FROM score
+                WHERE PN = :patient_id
                   AND ORDER_NUM = :order_num
                   AND QUESTION_CD = :question_cd
             """)
@@ -751,10 +538,10 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
             
             if exists:
                 update_query = text("""
-                    UPDATE assess_score
+                    UPDATE score
                     SET SCORE = :score,
                         ASSESS_TYPE = :assess_type
-                    WHERE PATIENT_ID = :patient_id
+                    WHERE PN = :patient_id
                       AND ORDER_NUM = :order_num
                       AND QUESTION_CD = :question_cd
                 """)
@@ -767,8 +554,8 @@ def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
                 })
             else:
                 insert_query = text("""
-                    INSERT INTO assess_score (
-                        PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD,
+                    INSERT INTO score (
+                        PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD,
                         QUESTION_NO, QUESTION_MINOR_NO, SCORE
                     ) VALUES (
                         :patient_id, :order_num, :assess_type, :question_cd,

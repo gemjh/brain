@@ -42,8 +42,8 @@ def get_pending_jobs(db):
             LEFT JOIN assess_score s
               ON s.PATIENT_ID = lst.PATIENT_ID
              AND s.ORDER_NUM = lst.ORDER_NUM
-            LEFT JOIN patient_api_key pk
-              ON pk.PATIENT_ID = lst.PATIENT_ID
+            LEFT JOIN api_key ak
+              ON ak.PATIENT_ID = lst.PATIENT_ID
             WHERE s.PATIENT_ID IS NULL
             """
         )

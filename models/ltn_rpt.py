@@ -89,10 +89,10 @@ def predict_score(wav_path):
     preds = model.predict({'mel_input': mel_batch, 'token_input': token_batch})
 
     point = [2.0, 2.0, 2.0, 4.0, 6.0, 8.0, 8.0, 10.0, 14.0, 12.0]
-    score = 0.0
+    score = []
     for i, p in enumerate(preds):
         # print(f"[{i}] Predicted: {p[0]:.4f}, score : {p[0]*point[i%10]:.1f} ({point[i%10]:.1f})")
-        score += int(round(p[0]*point[i]))
+        score.append(int(round(p[0]*point[i])))
 
     return score
 

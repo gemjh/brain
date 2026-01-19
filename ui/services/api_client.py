@@ -108,21 +108,6 @@ class APIClient:
         """특정 환자 조회"""
         return APIClient._make_request("GET", f"/patients/{patient_id}")
     
-    # ============================================
-    # 검사 관련
-    # ============================================
-    @staticmethod
-    def get_assessments(patient_id: str, assess_type: Optional[str] = None, api_key: Optional[str] = None) -> List[Dict]:
-        """검사 목록 조회"""
-        params = {"assess_type": assess_type} if assess_type else {}
-        headers = {"X-API-KEY": api_key} if api_key else None
-        return APIClient._make_request(
-            "GET", 
-            f"/assessments/{patient_id}",
-            params=params,
-            headers=headers
-        )
-
     @staticmethod
     def get_pending_file_count(patient_id: str) -> int:
         """모델링 미진행 파일 개수 조회"""
@@ -199,13 +184,28 @@ class APIClient:
     # 리포트 관련
     # ============================================
     @staticmethod
-    def get_report(patient_id: str, order_num: int, api_key: Optional[str] = None) -> Dict:
+    def get_report(
+        patient_id: str,
+        api_key: str,
+        assess_type: Optional[str] = None
+    ) -> List[Dict]:
         """리포트 조회"""
-        headers = {"X-API-KEY": api_key} if api_key else None
+        headers = {"X-API-KEY": api_key}
+        params = {"assess_type": assess_type} if assess_type else None
         return APIClient._make_request(
             "GET",
-            f"/reports/{patient_id}/{order_num}",
-            headers=headers
+            f"/reports/{patient_id}",
+            headers=headers,
+            params=params
+
+        # """검사 목록 조회"""
+        # params = {"assess_type": assess_type} if assess_type else {}
+        # headers = {"X-API-KEY": api_key} if api_key else None
+        # return APIClient._make_request(
+        #     "GET", 
+        #     f"/assessments/{patient_id}",
+        #     params=params,
+        #     headers=headers
         )
     
     # ============================================

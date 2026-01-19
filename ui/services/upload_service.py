@@ -68,64 +68,10 @@ clap_D_pkt_cd = {1:'P_SOUND', 2:'T_SOUND', 3:'K_SOUND', 4:'PTK_SOUND'}
 
 class APIClient:
     """API 통신 클라이언트"""
-    
-    @staticmethod
-    def fetch_order_num(patient_id: str) -> int:
-        """환자의 수행회차 조회 (API 호출)"""
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/patients/{patient_id}/order",
-                timeout=150
-            )
-            response.raise_for_status()
-            order_num = response.json().get('order_num')
-            if order_num is None:
-                logger.warning(f"order_num이 null로 반환됨, 기본값 1 사용: {patient_id}")
-                return 1
-            return int(order_num)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"수행회차 조회 실패: {e}")
-            raise Exception(f"API 호출 실패: {str(e)}")
-    
-    @staticmethod
-    def save_patient_assessment(patient_id: str, order_num: int, csv_data: dict) -> bool:
-        """환자 검사 정보 저장"""
-        try:
-            payload = {
-                "patient_id": patient_id,
-                "order_num": order_num,
-                **csv_data
-            }
-            response = requests.post(
-                f"{API_BASE_URL}/assessments/patient-info",
-                json=payload,
-                timeout=120
-            )
-            response.raise_for_status()
-            logger.info(f"환자 검사 정보 저장 완료: {patient_id}")
-            return True
-        except requests.exceptions.RequestException as e:
-            logger.error(f"환자 검사 정보 저장 실패: {e}")
-            return False
 
-    @staticmethod
-    def get_patient_info(patient_id: str) -> Optional[dict]:
-        """patient_info에서 환자 기본 정보를 가져온다."""
-        try:
-            response = requests.get(
-                f"{API_BASE_URL}/patients/{patient_id}",
-                timeout=150
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"환자 기본 정보 조회 실패: {e}")
-            return None
-    
     @staticmethod
     def upload_file_with_metadata(
         patient_id: str,
-        order_num: int,
         assess_type: str,
         question_cd: str,
         question_no: int,
@@ -151,15 +97,15 @@ class APIClient:
                     'rate': rate
                 }
                 
-                response = requests.post(
-                    f"{API_BASE_URL}/assessments/files/upload",
-                    files=files,
-                    data=data,
-                    timeout=120
-                )
-                response.raise_for_status()
-                logger.info(f"파일 업로드 완료: {os.path.basename(file_path)}")
-                return True
+            response = requests.post(
+                f"{API_BASE_URL}/assessments/files/upload",
+                files=files,
+                data=data,
+                timeout=120
+            )
+            response.raise_for_status()
+            logger.info(f"파일 업로드 완료: {os.path.basename(file_path)}")
+            return True
         except Exception as e:
             logger.error(f"파일 업로드 실패: {e}")
             return False
@@ -292,8 +238,6 @@ def parse_csv_file(csv_path: str) -> dict:
         csv_data['request_org'] = str(df.loc[idx, '대상기관'])[:10] if not pd.isna(df.loc[idx, '대상기관']) else None
         csv_data['assess_date'] = str(df.loc[idx, '검사일자'])[:10] if not pd.isna(df.loc[idx, '검사일자']) else None
         csv_data['assess_person'] = df.loc[idx, '검사자'] if not pd.isna(df.loc[idx, '검사자']) else None
-        csv_data['age'] = int(df.loc[idx, 'age']) if not pd.isna(df.loc[idx, 'age']) else None
-        csv_data['sex'] = str(int(df.loc[idx, 'sex'])) if not pd.isna(df.loc[idx, 'sex']) else None
         csv_data['edu'] = int(df.loc[idx, 'edu']) if not pd.isna(df.loc[idx, 'edu']) else None
         csv_data['excluded'] = str(int(df.loc[idx, 'excluded'])) if not pd.isna(df.loc[idx, 'excluded']) else '0'
         csv_data['post_stroke_date'] = str(df.loc[idx, 'post_stroke_date'])[:10] if not pd.isna(df.loc[idx, 'post_stroke_date']) else None
@@ -513,7 +457,7 @@ def process_wav_files(target_path: str, patient_id: str, order_num: int) -> list
 
 def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optional[str], Optional[pd.DataFrame], Optional[str]]:
     """
-    ZIP 파일 업로드 및 blob으로 DB 저장
+    파일 정보를 DB에서 조회하여 모델링/업로드 처리를 수행
     
     Returns:
         Tuple[order_num, DataFrame]: 성공 시 회차 번호와 파일 정보 DataFrame
@@ -521,148 +465,30 @@ def zip_upload(btn_apply: bool, patient_id: str, uploaded_file) -> Tuple[Optiona
     if not (btn_apply and patient_id and uploaded_file):
         return None, None
     
-    logger.info("[START] ZIP 업로드 프로세스 시작")
-    order_num = None
-    # 임시 디렉토리 생성
-    temp_dir = tempfile.mkdtemp()
-    
+    logger.info("[START] 업로드 프로세스 시작 (압축 해제 없음, DB 메타데이터 사용)")
     api_key = None
     try:
-        # 1. 압축 해제
-        zip_path = os.path.join(temp_dir, uploaded_file.name)
-        with open(zip_path, 'wb') as f:
-            f.write(uploaded_file.getbuffer())
-        
-        extract_path = os.path.join(temp_dir, 'extracted')
-        os.makedirs(extract_path, exist_ok=True)
-        
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(extract_path)
-        
-        # 압축 해제된 폴더 찾기
-        folder_name = uploaded_file.name[:uploaded_file.name.rfind('.')]
-        target_path = os.path.join(extract_path, folder_name)
-        print('------------------ 현재 target_path: ', target_path , '------------------')
-        print('------------------ 현재 folder_name: ', folder_name , '------------------')
-        
-        if not os.path.isdir(target_path):
-            raise FileNotFoundError(f"압축 해제된 폴더를 찾을 수 없습니다: {target_path}")
-        
-        logger.info(f"압축 해제 완료: {target_path}")
-        
-        # 2. API를 통한 수행회차 조회
-        order_num = APIClient.fetch_order_num(patient_id)
-        logger.info(f"수행회차: {order_num}")
-        
-        # 3. CSV 파일 처리 : 의뢰인, 검사일자, 검사자
-        csv_file_path = os.path.join(target_path, f"{patient_id}.csv")
-        
-        if os.path.exists(csv_file_path):
-            csv_data = parse_csv_file(csv_file_path)
-            if not APIClient.save_patient_assessment(patient_id, order_num, csv_data):
-                raise Exception("환자 검사 정보 저장 실패")
-        else:
-            logger.warning(f"CSV 파일 없음 - patient_info에서 기본 정보 조회: {patient_id}")
-            patient_info = APIClient.get_patient_info(patient_id)
-            if not patient_info:
-                raise Exception("환자 기본 정보를 찾을 수 없습니다 (patient_info)")
-            # patient_info 필드 매핑
-            csv_data = {
-                'age': patient_info.get('age'),
-                'sex': patient_info.get('sex'),
-                'edu': patient_info.get('edu'),
-                'excluded': patient_info.get('excluded', '0') or '0',
-                'post_stroke_date': patient_info.get('post_stroke_date'),
-                'diagnosis': patient_info.get('diagnosis'),
-                'stroke_type': patient_info.get('stroke_type'),
-                'lesion_location': patient_info.get('lesion_location'),
-                'hemiplegia': patient_info.get('hemiplegia'),
-                'hemineglect': patient_info.get('hemineglect'),
-                'visual_field_defect': patient_info.get('visual_field_defect'),
-                # assess_lst에 필요한 필드 중 patient_info에 없는 값들은 None으로 둔다.
-                'request_org': None,
-                'assess_date': None,
-                'assess_person': None,
-                'diagnosis_etc': None,
-            }
-            if not APIClient.save_patient_assessment(patient_id, order_num, csv_data):
-                raise Exception("환자 검사 정보 저장 실패 (patient_info 기반)")
-        
-        # 4. 오디오 파일 수집
-        files_data = process_wav_files(target_path, patient_id, order_num)
-        
-        if not files_data:
-            raise Exception("처리할 오디오 파일이 없습니다")
-        
-        logger.info(f"수집된 파일: {len(files_data)}건")
-        
-        # 5. 파일 변환 및 일괄 업로드
-        converted_files = []  # 변환된 임시 파일 추적
-        
-        try:
-            upload_data = []
-            for item in files_data:
-                file_path = item['file_path']
-                
-                # m4a면 wav로 변환
-                if item['needs_conversion']:
-                    logger.info(f"파일 변환 중: {item['original_filename']}")
-                    converted_path = convert_to_wav(file_path)
-                    converted_files.append(converted_path)
-                    upload_path = converted_path
-                else:
-                    upload_path = file_path
-                
-                upload_data.append({
-                    'file_path': upload_path,
-                    'metadata': item['metadata']
-                })
-            
-            # API를 통해 업로드
-            upload_ok, api_key = APIClient.upload_files_bulk(upload_data)
-            if not upload_ok:
-                raise Exception("파일 업로드 실패")
-            # 응답에 api_key가 없거나 비어 있으면 DB 조회/발급하여 보정
-            if not api_key:
-                api_key = APIClient.get_api_key_by_patient(patient_id)
-            
-        finally:
-            # 변환된 임시 파일 정리
-            for temp_file in converted_files:
-                try:
-                    if os.path.exists(temp_file):
-                        os.unlink(temp_file)
-                        logger.debug(f"임시 파일 삭제: {temp_file}")
-                except Exception as e:
-                    logger.warning(f"임시 파일 삭제 실패: {temp_file}, {e}")
-        
-        # 6. 중복 파일 처리
-        if not APIClient.handle_duplicate_files(patient_id, order_num, api_key):
+        # DB에 이미 저장된 파일 메타데이터를 사용 (create_date 내림차순)
+        files = APIClient.get_assessment_files(patient_id, order_num=0)
+        if not files:
+            raise Exception("DB에 파일 메타데이터가 없습니다")
+        df = pd.DataFrame(files).sort_values(by="CREATE_DATE", ascending=False)
+
+        # 중복 파일 처리
+        api_key = APIClient.get_api_key_by_patient(patient_id)
+        if not APIClient.handle_duplicate_files(patient_id, order_num=0, api_key=api_key):
             raise Exception("중복 파일 처리 실패")
-        
-        # 7. 점수 테이블 초기화
-        if not APIClient.initialize_scores(patient_id, order_num, api_key):
+
+        # 점수 테이블 초기화
+        if not APIClient.initialize_scores(patient_id, order_num=0, api_key=api_key):
             raise Exception("점수 테이블 초기화 실패")
-        
-        # 8. 파일 정보 DataFrame 생성 (메타데이터만)
-        df = pd.DataFrame([item['metadata'] for item in files_data])
-        
-        logger.info(f"[COMPLETE] ZIP 업로드 완료: {patient_id} - 회차 {order_num}")
-        return str(order_num), df, api_key
-        
+
+        logger.info(f"[COMPLETE] 업로드 완료: {patient_id}")
+        return "0", df, api_key
+
     except Exception as e:
-        logger.error(f"[ERROR] ZIP 업로드 실패: {str(e)}")
-        # DB 롤백 시도
-        if order_num is not None:
-            APIClient.cleanup_assessment(patient_id, order_num, api_key if 'api_key' in locals() else None)
+        logger.error(f"[ERROR] 업로드 실패: {str(e)}")
         st.error(f"업로드 중 오류 발생: {str(e)}")
         return None, None, None
-    finally:
-        # 임시 폴더 정리
-        try:
-            shutil.rmtree(temp_dir)
-            logger.info("임시 폴더 정리 완료")
-        except Exception as e:
-            logger.warning(f"임시 폴더 정리 실패: {e}")
 
     

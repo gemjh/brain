@@ -99,7 +99,7 @@ def main(wav_items):
   """
   wav_items: [{'path': str, 'question_no': int}, ...]
   """
-  total_score = 0
+  total_score = []
   for item in wav_items:
     path = item['path']
     question_no = int(item['question_no'])
@@ -124,7 +124,7 @@ def main(wav_items):
       # path = 'C:/Users/eunhy/1001_p_4_0.wav'
       x_pred_data = pred_preprocess(path,n_mels=80)
       pred_y = pred_model.predict([x_pred_data,np.expand_dims(sub_x_data,axis=0)])
-      total_score += np.round(pred_y[0][0]*score[num],0)
+      total_score.append(np.round(pred_y[0][0]*score[num],0))
     finally:
       # ============================================================================
       # 메모리 관리 개선 - 2025.08.22 추가
@@ -139,7 +139,7 @@ def main(wav_items):
           pass
       tf.keras.backend.clear_session()
 
-  print(f"녹음파일의 예상 점수는 {total_score}점 입니다.")
+  # print(f"녹음파일의 예상 점수는 {total_score}점 입니다.")
   return total_score
 
 # main()

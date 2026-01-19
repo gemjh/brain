@@ -50,11 +50,8 @@ app.add_middleware(
 # ============================================
 # 기존 라우터
 app.include_router(patients.router, prefix="/api/v1/patients", tags=["Patients"])
-app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["Assessments"])
+# app.include_router(assessments.router, prefix="/api/v1/assessments", tags=["Assessments"])
 app.include_router(reports.router, prefix="/api/v1/reports", tags=["Reports"])
-app.include_router(upload.router, prefix="/api/v1", tags=["Upload & Scores"])
-
-# 새로운 라우터 추가 - 업로드 및 점수 관련
 app.include_router(upload.router, prefix="/api/v1", tags=["Upload & Scores"])
 
 

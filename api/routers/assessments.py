@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import List, Optional
@@ -8,73 +8,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from ..database import get_db
+from ..models import AssessmentResult
 
 router = APIRouter()
-
-@router.get("/{patient_id}")
-def get_assessments(
-    patient_id: str, 
-    assess_type: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """환자의 검사 목록 조회"""
-    try:
-        base_query = """
-            SELECT DISTINCT 
-                lst.ORDER_NUM, lst.PATIENT_ID, 
-                COALESCE(p.name, '정보없음') as PATIENT_NAME,
-                lst.AGE, COALESCE(p.SEX, '0') as SEX, 
-                flst.ASSESS_TYPE, flst.MAIN_PATH, lst.ASSESS_DATE, 
-                lst.REQUEST_ORG, lst.ASSESS_PERSON
-            FROM assess_lst lst
-            LEFT JOIN patient_info p ON lst.PATIENT_ID = p.PATIENT_ID
-            INNER JOIN assess_file_lst flst 
-                ON lst.PATIENT_ID = flst.PATIENT_ID 
-                AND lst.ORDER_NUM = flst.ORDER_NUM
-            WHERE flst.USE_YN = 'Y'
-                AND lst.PATIENT_ID = :patient_id
-                -- 모든 문항에 점수가 채워진 검사만 노출
-                AND EXISTS (
-                    SELECT 1 FROM assess_score s
-                    WHERE s.PATIENT_ID = lst.PATIENT_ID
-                      AND s.ORDER_NUM = lst.ORDER_NUM
-                      AND s.SCORE IS NOT NULL
-                )
-                AND NOT EXISTS (
-                    SELECT 1 FROM assess_score s_null
-                    WHERE s_null.PATIENT_ID = lst.PATIENT_ID
-                      AND s_null.ORDER_NUM = lst.ORDER_NUM
-                      AND (s_null.SCORE IS NULL)
-                )
-        """
-        
-        params = {"patient_id": patient_id}
-        
-        if assess_type:
-            base_query += " AND flst.ASSESS_TYPE = :assess_type"
-            params["assess_type"] = assess_type
-        
-        cursor = db.execute(text(base_query), params)
-        result = cursor.mappings().fetchall()
-        
-        return [
-            {
-                "order_num": row["ORDER_NUM"],
-                "patient_id": row["PATIENT_ID"],
-                "patient_name": row["PATIENT_NAME"],
-                "age": row["AGE"],
-                "sex": row["SEX"],
-                "assess_type": row["ASSESS_TYPE"],
-                "main_path": row["MAIN_PATH"],
-                "assess_date": str(row["ASSESS_DATE"]) if row["ASSESS_DATE"] else None,
-                "request_org": row["REQUEST_ORG"],
-                "assess_person": row["ASSESS_PERSON"]
-            }
-            for row in result
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"검사 목록 조회 실패: {str(e)}")
-
 
 @router.get("/{patient_id}/pending-count")
 def get_pending_file_count(
@@ -91,7 +27,7 @@ def get_pending_file_count(
             FROM assess_file_lst f
             LEFT JOIN assess_score s
               ON s.PATIENT_ID = f.PATIENT_ID
-             AND s.ORDER_NUM = f.ORDER_NUM
+             AND s.ORDER_NUM = (SELECT MAX(ORDER_NUM) FROM assess_score WHERE PATIENT_ID = :patient_id)
              AND s.QUESTION_CD = f.QUESTION_CD
              AND s.QUESTION_NO = f.QUESTION_NO
              AND s.QUESTION_MINOR_NO = f.QUESTION_MINOR_NO
@@ -105,40 +41,56 @@ def get_pending_file_count(
         raise HTTPException(status_code=500, detail=f"미진행 파일 조회 실패: {str(e)}")
 
 
-@router.get("/{patient_id}/{order_num}/scores")
+@router.get("/{patient_id}/scores", response_model=List[AssessmentResult])
 def get_assessment_scores(
     patient_id: str,
-    order_num: int,
+    api_key: str = Header(..., alias="X-API-KEY"),
     assess_type: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """특정 검사의 점수 조회"""
+    """최신 검사의 점수 조회"""
     try:
+        api_check_query = text("""
+            SELECT API_KEY
+            FROM api_key
+            WHERE API_KEY = :api_key
+        """)
+        api_check_cursor = db.execute(
+            api_check_query, 
+            {"api_key": api_key}
+        )
+        api_check_info = api_check_cursor.mappings().fetchone()
+        if not api_check_info:
+            raise HTTPException(status_code=404, detail="API 키를 찾을 수 없습니다")
+
         query = """
             SELECT 
-                s.PATIENT_ID, s.ORDER_NUM, s.ASSESS_TYPE, 
-                s.QUESTION_CD, s.SCORE
+                s.PATIENT_ID,
+                s.ORDER_NUM,
+                s.ASSESS_TYPE, 
+                s.QUESTION_CD,
+                s.SCORE
             FROM assess_score s
             WHERE s.PATIENT_ID = :patient_id 
-            AND s.ORDER_NUM = :order_num
+            AND s.ORDER_NUM = (SELECT MAX(ORDER_NUM) FROM assess_score WHERE PATIENT_ID = :patient_id)
         """
         
-        params = {"patient_id": patient_id, "order_num": order_num}
+        params = {"patient_id": patient_id}
         
         if assess_type:
             query += " AND s.ASSESS_TYPE = :assess_type"
             params["assess_type"] = assess_type
         
         cursor = db.execute(text(query), params)
-        result = cursor.fetchall()
+        result = cursor.mappings().fetchall()
         
         return [
             {
-                "patient_id": row[0],
-                "order_num": row[1],
-                "assess_type": row[2],
-                "question_cd": row[3],
-                "score": float(row[4]) if row[4] else 0
+                "patient_id": row["PATIENT_ID"],
+                "order_num": row["ORDER_NUM"],
+                "assess_type": row["ASSESS_TYPE"],
+                "question_cd": row["QUESTION_CD"],
+                "score": float(row["SCORE"]) if row["SCORE"] is not None else 0,
             }
             for row in result
         ]

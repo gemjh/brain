@@ -224,30 +224,30 @@ def model_process(path_info, api_key=None):
                         temp_files.append(temp_path)
                 
                 ltn_rpt_result = ltn_rpt.predict_score(file_paths)
-                fin_scores['LTN_RPT'] = int(ltn_rpt_result)
+                fin_scores['LTN_RPT'] = ltn_rpt_result
                 logger.info(f"LTN_RPT 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"LTN_RPT 모델 실행 중 오류 발생: {e}")
-                fin_scores['LTN_RPT'] = 0
+                raise
         
         if len(guess_end_files) > 0:
             start_time = time.time()
             try:
                 guess_end = get_guess_end()
-                temp = []
+                guess_end_result = []
                 for idx, file_info in enumerate(guess_end_files):
                     temp_path, should_cleanup = resolve_audio_path(file_info)
                     if should_cleanup:
                         temp_files.append(temp_path)
-                    temp.append(guess_end.predict_guess_end_score(temp_path, idx))
+                    guess_end_result.append(int(guess_end.predict_guess_end_score(temp_path, idx)))
                 
-                guess_end_result = sum(temp)
-                fin_scores['GUESS_END'] = int(guess_end_result)
+                fin_scores['GUESS_END'] = guess_end_result
                 logger.info(f"GUESS_END 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"GUESS_END 모델 실행 중 오류 발생: {e}")
-                fin_scores['GUESS_END'] = 0
+                raise
         
+        # say_obj : 문항별 점수 없음, 총점만 반환
         if len(say_obj_files) > 0:
             start_time = time.time()
             try:
@@ -273,31 +273,35 @@ def model_process(path_info, api_key=None):
             start_time = time.time()
             try:
                 say_ani = get_say_ani()
-                temp_path, should_cleanup = resolve_audio_path(say_ani_files[0])
-                if should_cleanup:
-                    temp_files.append(temp_path)
+                say_ani_result = []
+                for i in range(len(say_ani_files)):
+                    temp_path, should_cleanup = resolve_audio_path(say_ani_files[i])
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
-                say_ani_result = say_ani.score_audio(temp_path)
-                fin_scores['SAY_ANI'] = int(say_ani_result)
+                    say_ani_result.append(int(say_ani.score_audio(temp_path)))
+                fin_scores['SAY_ANI'] = say_ani_result
                 logger.info(f"SAY_ANI 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"SAY_ANI 모델 실행 중 오류 발생: {e}")
-                fin_scores['SAY_ANI'] = 0
+                raise
         
         if len(talk_pic_files) > 0:
             start_time = time.time()
             try:
                 talk_pic = get_talk_pic()
-                temp_path, should_cleanup = resolve_audio_path(talk_pic_files[0])
-                if should_cleanup:
-                    temp_files.append(temp_path)
+                talk_pic_result = []
+                for i in range(len(talk_pic_files)):
+                    temp_path, should_cleanup = resolve_audio_path(talk_pic_files[i])
+                    if should_cleanup:
+                        temp_files.append(temp_path)
                 
-                talk_pic_result = talk_pic.score_audio(temp_path)
-                fin_scores['TALK_PIC'] = int(talk_pic_result)
+                    talk_pic_result.append(int(talk_pic.score_audio(temp_path)))
+                fin_scores['TALK_PIC'] = talk_pic_result
                 logger.info(f"TALK_PIC 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"TALK_PIC 모델 실행 중 오류 발생: {e}")
-                fin_scores['TALK_PIC'] = 0
+                raise
         
         if len(ah_sound_files) > 0:
             start_time = time.time()
@@ -329,30 +333,31 @@ def model_process(path_info, api_key=None):
                 
                 for i, path in enumerate(file_paths):
                     if i < 3:
-                        temp_p.append(ptk_sound.ptk_each(path))
+                        temp_p.append(round(ptk_sound.ptk_each(path),2))
                     elif i < 6:
-                        temp_t.append(ptk_sound.ptk_each(path))
+                        temp_t.append(round(ptk_sound.ptk_each(path),2))
                     elif i < 9:
-                        temp_k.append(ptk_sound.ptk_each(path))
+                        temp_k.append(round(ptk_sound.ptk_each(path),2))
                     elif i < 12:
-                        temp_ptk.append(ptk_sound.ptk_whole(path))
+                        temp_ptk.append(round(ptk_sound.ptk_whole(path),2))
                 
                 if temp_p:
-                    fin_scores['P_SOUND'] = str(round(max(temp_p), 2))
+                    fin_scores['P_SOUND'] = temp_p
                 if temp_t:
-                    fin_scores['T_SOUND'] = str(round(max(temp_t), 2))
+                    fin_scores['T_SOUND'] = temp_t
                 if temp_k:
-                    fin_scores['K_SOUND'] = str(round(max(temp_k), 2))
+                    fin_scores['K_SOUND'] = temp_k
                 if temp_ptk:
-                    fin_scores['PTK_SOUND'] = str(round(max(temp_ptk), 2))
+                    fin_scores['PTK_SOUND'] = temp_ptk
                     
                 logger.info(f"PTK_SOUND 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"PTK_SOUND 모델 실행 중 오류 발생: {e}")
-                fin_scores['P_SOUND'] = 0
-                fin_scores['T_SOUND'] = 0
-                fin_scores['K_SOUND'] = 0
-                fin_scores['PTK_SOUND'] = 0
+                raise
+                # fin_scores['P_SOUND'] = [0]
+                # fin_scores['T_SOUND'] = [0]
+                # fin_scores['K_SOUND'] = [0]
+                # fin_scores['PTK_SOUND'] = [0]
         
         if len(talk_clean_files) > 0:
             start_time = time.time()
@@ -369,11 +374,11 @@ def model_process(path_info, api_key=None):
                         temp_files.append(temp_path)
                 
                 talk_clean_result = talk_clean.main(file_items)
-                fin_scores['TALK_CLEAN'] = int(talk_clean_result)
+                fin_scores['TALK_CLEAN'] = talk_clean_result
                 logger.info(f"TALK_CLEAN 모델 실행 시간: {time.time() - start_time:.2f}초")
             except Exception as e:
                 logger.error(f"TALK_CLEAN 모델 실행 중 오류 발생: {e}")
-                fin_scores['TALK_CLEAN'] = 0
+                raise
         
         return fin_scores
     
