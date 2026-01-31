@@ -13,7 +13,6 @@ dependencies:
   - jupyter
   - ipykernel
   - pip:
-      - streamlit==1.39.0
       - tensorflow-macos<=2.19.0 ; sys_platform == "darwin"      # (Apple Silicon)
       - tensorflow==2.19.0 ; sys_platform != "darwin"
       - tensorflow-hub==0.16.1
@@ -30,7 +29,6 @@ dependencies:
       - pydub==0.25.1
       - python-dotenv==1.1.1
       - joblib==1.5.1
-      - streamlit_image_coordinates==0.4.0
       - pydub==0.25.1
       - sqlalchemy==2.0.45
       - pymysql==1.1.2

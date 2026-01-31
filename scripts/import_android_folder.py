@@ -52,9 +52,9 @@ def iter_audio_files(root_dir: str) -> Iterator[Tuple[str, str, str]]:
 def get_next_order_num(db, patient_id: str) -> int:
     query = text(
         """
-        SELECT IFNULL(MAX(order_num) + 1, 1)
-        FROM SCORE
-        WHERE PN = :patient_id
+        SELECT IFNULL(MAX(ORDER_NUM) + 1, 1)
+        FROM AUDIO_STORAGE
+        WHERE PATIENT_ID = :patient_id
         """
     )
     return int(db.execute(query, {"patient_id": patient_id}).scalar() or 1)

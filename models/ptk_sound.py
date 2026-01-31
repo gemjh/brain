@@ -66,12 +66,12 @@ def pred_preprocess(wav_path, sr=16000, n_mels=128):
 def ptk_each(filepath):
     ptk_x_data=pred_preprocess(filepath)
     pred = model_each.predict(ptk_x_data)
-    return np.round(pred[0][0],2)
+    return max(0,np.round(pred[0][0],2))
 
 
 """## 전체 음정(퍼터커) """
 def ptk_whole(filepath):
     ptk_x_data=pred_preprocess(filepath)
     pred = model_whole.predict(ptk_x_data)
-    return np.round(pred[0][0],2)
+    return max(0,np.round(pred[0][0],2))
 

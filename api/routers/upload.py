@@ -8,12 +8,15 @@ import os
 import datetime
 import random
 import string
+import threading
+import logging
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from ..database import get_db
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # 현재 api key 로직: 환자 파일 업로드하면 발급, 그후 환자ID별로 저장 및 조회에 사용
 def issue_api_key(patient_id: str, db: Session) -> str:
@@ -129,56 +132,14 @@ def get_api_key_by_patient(patient_id: str, db: Session = Depends(get_db)):
 # ============================================
 # Request Models
 # ============================================
-class PatientAssessmentInfo(BaseModel):
-    patient_id: str
-    request_org: Optional[str] = None
-    assess_date: Optional[str] = None
-    assess_person: Optional[str] = None
-    edu: Optional[int] = None
-    excluded: str = '0'
-    post_stroke_date: Optional[str] = None
-    diagnosis: Optional[str] = None
-    diagnosis_etc: Optional[str] = None
-    stroke_type: Optional[str] = None
-    lesion_location: Optional[str] = None
-    hemiplegia: Optional[str] = None
-    hemineglect: Optional[str] = None
-    visual_field_defect: Optional[str] = None
-
-
-class FileMetadata(BaseModel):
-    patient_id: str
-    order_num: int
-    assess_type: str
-    question_cd: str
-    question_no: int
-    question_minor_no: int
-    file_name: str
-    duration: float
-    rate: int
-    # Path 관련 필드 제거 (MAIN_PATH, SUB_PATH)
-
-
-class ScoreData(BaseModel):
-    patient_id: str
-    order_num: int
-    assess_type: str
-    question_cd: str
-    question_no: int
-    question_minor_no: int
-    score: float
-
-
-class ScoreBulk(BaseModel):
-    scores: List[ScoreData]
 
 
 def get_next_order_num(db: Session, patient_id: str) -> int:
     """해당 환자의 다음 order_num 반환 (기본 1)"""
     query = text("""
-        SELECT IFNULL(MAX(order_num) + 1, 1)
-        FROM SCORE
-        WHERE PN = :patient_id
+        SELECT IFNULL(MAX(ORDER_NUM) + 1, 1)
+        FROM AUDIO_STORAGE
+        WHERE PATIENT_ID = :patient_id
     """)
     return int(db.execute(query, {"patient_id": patient_id}).scalar() or 1)
 
@@ -187,39 +148,23 @@ def get_next_order_num(db: Session, patient_id: str) -> int:
 # Endpoints
 # ============================================
 
-# @router.get("/keys/generate")
-# def generate_client_key():
-#     """
-#     클라이언트에서 API 접근 시 사용할 고유 키 생성
-#     - UTC 타임스탬프(마이크로초) + 랜덤 6자리 영숫자 조합
-#     """
-#     return {"detail": "키 발급은 업로드 시 자동 생성됩니다."}
-
-
 @router.post("/assessments/files/upload")
 async def upload_files_with_metadata(
-    id: str = Form(...),
     patient_id: str = Form(..., alias="pn"),
-    order_num: int = Form(...),
-    assess_type: str = Form(...),
-    question_cd: str = Form(...),
-    filename: str = Form(...),
+    order_num: int = Form(..., alias="evaluationId"),
+    assess_type: str = Form(..., alias="type"),
+    question_cd: str = Form(..., alias="episode"),
+    filename: str = Form(..., alias="fileName"),
+    duration: float = Form(...),
+    rate: str = Form(...),
     score: float = Form(...),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
     """
-    파일을 blob으로 저장 (단일 파일)
+    파일을 MEDIUMBLOB으로 저장 (단일 파일)
     wav, m4a 등 다양한 오디오 포맷 지원
 
-    Args:
-        id: pk
-        order_num: 검사 인덱스 (evaluationId)
-        question_cd: 문항 코드 (episodeIndex)
-        file_name: 앱에서 전달된 파일명(p_1_0.wav)
-        duration: 오디오 길이
-        rate: 샘플링 레이트
-        creation_date: 앱에서 전달된 생성 시각
-        file: 업로드 파일 (wav, m4a 등)
     """
     name_parts = filename.split("_")
     question_no = int(name_parts[1])
@@ -238,25 +183,38 @@ async def upload_files_with_metadata(
                 status_code=400,
                 detail=f"지원하지 않는 파일 형식: {file_ext}. 허용: {', '.join(allowed_extensions)}"
             )
-        
+        # 파일을 바이너리(bytes)로 읽음
+        file_content = await file.read()
+
+        # ================================= 2026-01-31 jhkim =================================
+        # 동일 PK 조합 중복 시 score/file/duration만 갱신 (ON DUPLICATE KEY UPDATE)
         query = text("""
             INSERT INTO audio_storage (
-                ID, PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, QUESTION_MINOR_NO, SCORE 
+                PATIENT_ID, ORDER_NUM, ASSESS_TYPE, QUESTION_CD, QUESTION_NO, QUESTION_MINOR_NO, DURATION, SCORE, RATE, FILE
             ) VALUES (
-                :id, :patient_id, :order_num, :assess_type, :question_cd,
-                :question_no, :question_minor_no, :score
+                :patient_id, :order_num, :assess_type, :question_cd,
+                :question_no, :question_minor_no, :duration, :score, :rate, :file
             )
+            ON DUPLICATE KEY UPDATE
+                SCORE = VALUES(SCORE),
+                DURATION = VALUES(DURATION),
+                RATE = VALUES(RATE),
+                FILE = VALUES(FILE),
+                USE_TF = 0
         """)
+        # ====================================================================================
         
         db.execute(query, {
-            'id': id,
             'patient_id': patient_id,
             'order_num': order_num,
             'assess_type': assess_type,
             'question_cd': question_cd,
             'question_no': question_no,
             'question_minor_no': question_minor_no,
+            'duration': duration,
+            'rate': rate,
             'score': score,
+            'file': file_content
         })
         db.commit()
         
@@ -268,6 +226,25 @@ async def upload_files_with_metadata(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
+
+
+def _run_model_worker_once():
+    try:
+        from scripts.model_worker import _init_heavy_imports, process_pending_jobs
+        pd, text, SessionLocal, APIClient, model_process, save_scores_to_db = _init_heavy_imports()
+        process_pending_jobs(pd, text, SessionLocal, APIClient, model_process, save_scores_to_db)
+    except Exception as e:
+        logger.error(f"모델 워커 실행 실패: {e}")
+
+
+@router.post("/assessments/run-model")
+def run_model_worker():
+    """
+    모델 워커를 1회 실행 (비동기 스레드로 처리).
+    """
+    worker_thread = threading.Thread(target=_run_model_worker_once, daemon=True)
+    worker_thread.start()
+    return {"success": True, "message": "모델 워커 실행 요청됨"}
 
 #  {
 #     "detail":[
@@ -295,6 +272,41 @@ async def upload_files_with_metadata(
 #                     "msg":"Field required",
 #                     "input":{
 #                         "assess_type":"CLAP_D","filename":"p_1_1.wav","id":1,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}},{"type":"missing","loc":["body","scores",1,"patient_id"],"msg":"Field required","input":{"assess_type":"CLAP_D","filename":"p_1_1.wav","id":2,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}},{"type":"missing","loc":["body","scores",1,"question_minor_no"],"msg":"Field required","input":{"assess_type":"CLAP_D","filename":"p_1_1.wav","id":2,"order_num":1,"pn":"1001","question_cd":"AH_SOUND","question_no":67,"score":2.0}}]}
+
+
+@router.get("/assessments/status/{patient_id}/{order_num}")
+def check_modeling_status(
+    patient_id: str,
+    order_num: int,
+    db: Session = Depends(get_db),
+):
+    """
+    해당 환자/회차의 모델링 상태 확인.
+    - has_data: AUDIO_STORAGE에 데이터가 존재하는지
+    - is_processing: 업로드됐지만 모델링 미완료(USE_TF=0) 데이터가 있는지
+    - is_complete: 모델링 완료(USE_TF=1) 데이터가 있는지
+    """
+    row = db.execute(
+        text("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN USE_TF = 0 THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN USE_TF = 1 THEN 1 ELSE 0 END) as completed
+            FROM AUDIO_STORAGE
+            WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num
+        """),
+        {"patient_id": patient_id, "order_num": order_num}
+    ).fetchone()
+
+    total = row[0] if row else 0
+    pending = row[1] if row else 0
+    completed = row[2] if row else 0
+
+    return {
+        "has_data": total > 0,
+        "is_processing": pending > 0 and total > 0,
+        "is_complete": completed > 0 and pending == 0,
+    }
 
 
 @router.post("/assessments/files/bulk-upload")
@@ -348,159 +360,59 @@ async def upload_files_bulk(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"파일 저장 실패: {str(e)}")
 
+from pydantic import BaseModel
+from typing import List, Optional
 
-@router.get("/assessments/{patient_id}/{order_num}/files")
-def get_assessment_files(
-    patient_id: str,
-    order_num: int,
+class ScoreIn(BaseModel):
+    patient_id: str
+    order_num: int
+    assess_type: str
+    question_cd: str
+    question_no: int
+    question_minor_no: int
+    score: Optional[float] = None
+
+class ScoresBulkIn(BaseModel):
+    scores: List[ScoreIn]
+
+@router.post("/assessments/score")
+def save_scores_bulk(
+    payload: ScoresBulkIn,
     db: Session = Depends(get_db),
-    _: str = Depends(require_api_key_for_patient)
 ):
     """
-    특정 검사의 파일 목록 조회 (메타데이터만, blob 제외)
+    모델 결과 점수들을 AUDIO_STORAGE 테이블에 직접 업데이트하는 엔드포인트.
+    클라이언트에서 json={"scores": [...]} 형태로 호출.
     """
     try:
-        query = text("""
-            SELECT 
-                A.PN, A.ORDER_NUM, A.ASSESS_TYPE, A.QUESTION_CD,
-                A.QUESTION_NO, A.FILE_NAME, A.DURATION, A.RATE,
-                LENGTH(A.FILE_CONTENT) as FILE_SIZE
-            FROM score A
-            WHERE A.PN = :patient_id 
-              AND A.ORDER_NUM = :order_num 
-            ORDER BY A.ASSESS_TYPE, A.ORDER_NUM, A.QUESTION_NO
-        """)
-        
-        result = db.execute(query, {
-            "patient_id": patient_id,
-            "order_num": order_num
-        }).fetchall()
-        
-        return [
-            {
-                "PATIENT_ID": row[0],
-                "ORDER_NUM": row[1],
-                "ASSESS_TYPE": row[2],
-                "QUESTION_CD": row[3],
-                "QUESTION_NO": row[4],
-                "FILE_NAME": row[5],
-                "DURATION": row[6],
-                "RATE": row[7],
-                "FILE_SIZE": row[8]
-            }
-            for row in result
-        ]
+        for item in payload.scores:
+            query = text("""
+                UPDATE AUDIO_STORAGE
+                SET SCORE = :score,
+                    USE_TF = 1
+                WHERE PATIENT_ID = :patient_id
+                  AND ORDER_NUM = :order_num
+                  AND ASSESS_TYPE = :assess_type
+                  AND QUESTION_CD = :question_cd
+                  AND QUESTION_NO = :question_no
+                  AND QUESTION_MINOR_NO = :question_minor_no
+            """)
+            db.execute(query, {
+                "patient_id": item.patient_id,
+                "order_num": item.order_num,
+                "assess_type": item.assess_type,
+                "question_cd": item.question_cd,
+                "question_no": item.question_no,
+                "question_minor_no": item.question_minor_no,
+                "score": item.score,
+            })
+
+        db.commit()
+        return {"success": True, "count": len(payload.scores)}
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"파일 목록 조회 실패: {str(e)}")
-
-
-@router.get("/assessments/{patient_id}/{order_num}/files/{question_cd}/download")
-def download_file(
-    patient_id: str, 
-    order_num: int, 
-    question_cd: str,
-    question_no: int,
-    convert_to_wav: bool = True,
-    db: Session = Depends(get_db),
-    _: str = Depends(require_api_key_for_patient)
-):
-    """
-    특정 파일을 blob에서 다운로드
-    
-    Args:
-        patient_id: 환자 ID
-        order_num: 검사 회차
-        question_cd: 문항 코드
-        question_no: 문항 번호
-        convert_to_wav: m4a를 wav로 변환 여부 (기본: True)
-    
-    Returns:
-        파일 바이너리 데이터 (wav 형식)
-    """
-    from fastapi.responses import Response
-    import tempfile
-    from pydub import AudioSegment
-    
-    try:
-        query = text("""
-            SELECT FILE_CONTENT, FILE_NAME
-            FROM score
-            WHERE PN = :patient_id
-              AND ORDER_NUM = :order_num
-              AND QUESTION_CD = :question_cd
-              AND QUESTION_NO = :question_no
-            ORDER BY QUESTION_MINOR_NO DESC, CREATE_DATE DESC
-        """)
-        
-        result = db.execute(query, {
-            "patient_id": patient_id,
-            "order_num": order_num,
-            "question_cd": question_cd,
-            "question_no": question_no
-        }).fetchone()
-        
-        if not result:
-            raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
-        
-        file_content, file_name = result
-        file_ext = os.path.splitext(file_name)[1].lower()
-        
-        # m4a이고 변환이 필요한 경우
-        if file_ext in ['.m4a', '.mp4', '.aac'] and convert_to_wav:
-            # 임시 파일로 저장
-            temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=file_ext)
-            temp_input.write(file_content)
-            temp_input.close()
-            
-            try:
-                # m4a를 wav로 변환
-                audio = AudioSegment.from_file(temp_input.name, format='m4a')
-                audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                
-                # 임시 wav 파일 생성
-                temp_output = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
-                temp_output.close()
-                
-                audio.export(temp_output.name, format='wav')
-                
-                # wav 파일 읽기
-                with open(temp_output.name, 'rb') as f:
-                    wav_content = f.read()
-                
-                # 변환된 파일명
-                base_name = os.path.splitext(file_name)[0]
-                output_filename = f"{base_name}.wav"
-                
-                return Response(
-                    content=wav_content,
-                    media_type="audio/wav",
-                    headers={
-                        "Content-Disposition": f"attachment; filename={output_filename}"
-                    }
-                )
-            finally:
-                # 임시 파일 삭제
-                try:
-                    os.unlink(temp_input.name)
-                    os.unlink(temp_output.name)
-                except:
-                    pass
-        else:
-            # wav 파일 또는 변환 불필요한 경우 그대로 반환
-            media_type = "audio/wav" if file_ext == '.wav' else "audio/mp4"
-            
-            return Response(
-                content=file_content,
-                media_type=media_type,
-                headers={
-                    "Content-Disposition": f"attachment; filename={file_name}"
-                }
-            )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"파일 다운로드 실패: {str(e)}")
-
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"점수 저장 실패: {str(e)}")
 
 @router.delete("/assessments/{patient_id}/{order_num}")
 def delete_assessment(
@@ -512,95 +424,15 @@ def delete_assessment(
     """업로드 실패 시 해당 환자/회차 데이터 롤백용"""
     try:
         params = {"patient_id": patient_id, "order_num": order_num}
-        file_result = db.execute(
-            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
-            params
-        )
-        score_result = db.execute(
-            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
-            params
-        )
-        lst_result = db.execute(
-            text("DELETE FROM score WHERE PN = :patient_id AND ORDER_NUM = :order_num"),
+        result = db.execute(
+            text("DELETE FROM AUDIO_STORAGE WHERE PATIENT_ID = :patient_id AND ORDER_NUM = :order_num"),
             params
         )
         db.commit()
         return {
             "success": True,
-            "deleted_files": file_result.rowcount,
-            "deleted_scores": score_result.rowcount,
-            "deleted_assess": lst_result.rowcount
+            "deleted_rows": result.rowcount
         }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"데이터 롤백 실패: {str(e)}")
-
-
-@router.post("/scores/bulk")
-def save_scores_bulk(data: ScoreBulk, db: Session = Depends(get_db)):
-    """점수 일괄 저장"""
-    try:
-        if not data.scores:
-            raise HTTPException(status_code=400, detail="저장할 점수 정보가 없습니다")
-        
-        for score in data.scores:
-            check_query = text("""
-                SELECT COUNT(*) 
-                FROM score
-                WHERE PN = :patient_id
-                  AND ORDER_NUM = :order_num
-                  AND QUESTION_CD = :question_cd
-            """)
-            
-            exists = db.execute(check_query, {
-                "patient_id": score.patient_id,
-                "order_num": score.order_num,
-                "question_cd": score.question_cd
-            }).scalar()
-            
-            if exists:
-                update_query = text("""
-                    UPDATE score
-                    SET SCORE = :score,
-                        ASSESS_TYPE = :assess_type
-                    WHERE PN = :patient_id
-                      AND ORDER_NUM = :order_num
-                      AND QUESTION_CD = :question_cd
-                """)
-                db.execute(update_query, {
-                    "score": score.score,
-                    "assess_type": score.assess_type,
-                    "patient_id": score.patient_id,
-                    "order_num": score.order_num,
-                    "question_cd": score.question_cd
-                })
-            else:
-                insert_query = text("""
-                    INSERT INTO score (
-                        PN, ORDER_NUM, ASSESS_TYPE, QUESTION_CD,
-                        QUESTION_NO, QUESTION_MINOR_NO, SCORE
-                    ) VALUES (
-                        :patient_id, :order_num, :assess_type, :question_cd,
-                        :question_no, :question_minor_no, :score
-                    )
-                """)
-                db.execute(insert_query, {
-                    "patient_id": score.patient_id,
-                    "order_num": score.order_num,
-                    "assess_type": score.assess_type,
-                    "question_cd": score.question_cd,
-                    "question_no": score.question_no,
-                    "question_minor_no": score.question_minor_no,
-                    "score": score.score
-                })
-        
-        db.commit()
-        
-        return {
-            "success": True,
-            "message": f"점수 {len(data.scores)}건 저장 완료",
-            "count": len(data.scores)
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"점수 저장 실패: {str(e)}")

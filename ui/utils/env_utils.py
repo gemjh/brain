@@ -111,13 +111,21 @@ def create_environment():
     run_env = os.environ.copy()
     run_env["CONDA_PKGS_DIRS"] = str(pkgs_dir)
     run_env["CONDARC"] = str(condarc_path)
-    
+
     try:
         print("필수 라이브러리 설치 중...")
         if WINOS:
             conda_cmd = os.path.join(conda_base, "Scripts", "conda.exe")
         else:
             conda_cmd = os.path.join(conda_base, "bin", "conda")
+
+        # ToS 자동 수락
+        for channel in ["https://repo.anaconda.com/pkgs/main", "https://repo.anaconda.com/pkgs/r"]:
+            subprocess.run(
+                [conda_cmd, "tos", "accept", "--override-channels", "--channel", channel],
+                env=run_env, capture_output=True
+            )
+
         subprocess.run(
             [conda_cmd, "env", "create", "-f", str(env_path)],
             check=True,
@@ -133,45 +141,6 @@ def create_environment():
         print(f"❌ 예상치 못한 오류: {e}")
         return False
 
-def activate_conda_environment():
-    """conda 환경 자동 활성화 또는 생성"""
-    try:
-        # 현재 Python 실행 경로 확인
-        current_python = sys.executable
-        print(f"현재 Python 경로: {current_python}")
-        
-        # SeSAC 환경 경로 확인
-        if ENV_NAME.lower() not in current_python.lower():
-            print(f"{ENV_NAME} 환경이 아닙니다.")
-            
-            conda_base = find_conda_base()
-            if not conda_base:
-                print("❌ conda가 설치되어 있지 않습니다.")
-                sys.exit(1)
-            
-            if WINOS:
-                sesac_python = os.path.join(conda_base, "envs", ENV_NAME, "Scripts", "python.exe")
-            else:
-                sesac_python = os.path.join(conda_base, "envs", ENV_NAME, "bin", "python")
-            
-            # SeSAC 환경이 있는지 확인
-            if not os.path.exists(sesac_python):
-                # SeSAC 환경이 없으면 생성
-                if not create_environment():
-                    print("환경 생성에 실패했습니다.")
-                    sys.exit(1)
-            
-            print(f"{ENV_NAME} 환경에서 재실행: {sesac_python}")
-            # streamlit 앱을 CLAP_PC 환경에서 재실행
-            app_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "app.py")
-            subprocess.run([sesac_python, "-m", "streamlit", "run", app_path] + sys.argv[1:])
-            sys.exit(0)
-        else:
-            print(f"✅ {ENV_NAME} 환경이 활성화되어 있습니다.")
-    except Exception as e:
-        print(f"환경 확인 중 오류 발생: {e}")
-        sys.exit(1)
-
 def delete_conda_environment(env_name=''):
     """conda 환경 삭제"""
     try:
@@ -186,6 +155,3 @@ def delete_conda_environment(env_name=''):
     except Exception as e:
         print(f"환경 삭제 중 오류 발생: {e}")
         sys.exit(1)
-
-# 호출만 해도 conda 환경 자동 활성화 실행
-# activate_conda_environment()

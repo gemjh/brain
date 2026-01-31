@@ -6,7 +6,7 @@ from typing import List, Dict, Optional
 
 import requests
 from dotenv import load_dotenv
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # .env를 명시적으로 프로젝트 루트에서 로드 (override=True로 기존 값 덮어쓰기)
 _ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -59,7 +59,11 @@ class APIClient:
     # 공통 메서드
     # ============================================
     @staticmethod
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(min=1, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout))
+    )
     def _make_request(method: str, endpoint: str, **kwargs):
         """
         공통 요청 메서드 (retry 로직 포함)
@@ -109,37 +113,24 @@ class APIClient:
         return APIClient._make_request("GET", f"/patients/{patient_id}")
     
     @staticmethod
-    def get_pending_file_count(patient_id: str) -> int:
-        """모델링 미진행 파일 개수 조회"""
-        try:
-            res = APIClient._make_request("GET", f"/assessments/{patient_id}/pending-count")
-            return int(res.get("pending_count", 0))
-        except Exception as e:
-            logger.warning(f"미진행 파일 개수 조회 실패: {e}")
-            return 0
-    
-    @staticmethod
     def get_assessment_scores(
         patient_id: str, 
-        order_num: int, 
         assess_type: Optional[str] = None
     ) -> List[Dict]:
         """검사 점수 조회"""
         params = {"assess_type": assess_type} if assess_type else {}
         return APIClient._make_request(
             "GET",
-            f"/assessments/{patient_id}/{order_num}/scores",
+            f"/reports/{patient_id}",
             params=params
         )
     
     @staticmethod
-    def get_assessment_files(patient_id: str, order_num: int, api_key: Optional[str] = None) -> List[Dict]:
-        """검사 파일 메타데이터 조회"""
-        headers = {"X-API-KEY": api_key} if api_key else None
+    def get_assessment_files(patient_id: str, order_num: int):
+        """검사 파일 조회"""
         return APIClient._make_request(
             "GET",
-            f"/assessments/{patient_id}/{order_num}/files",
-            headers=headers
+            f"/reports/{patient_id}/{order_num}/files"
         )
 
     
@@ -147,32 +138,22 @@ class APIClient:
     # 점수 저장 (신규 추가)
     # ============================================
     @staticmethod
-    def save_scores(score_list: List[Dict]) -> bool:
+    def save_scores_bulk(score_list: List[Dict]) -> bool:
         """
         점수 일괄 저장
-        
-        Args:
-            score_list: 점수 데이터 리스트
-                [
-                    {
-                        'patient_id': str,
-                        'order_num': int,
-                        'assess_type': str,
-                        'question_cd': str,
-                        'question_no': int,
-                        'question_minor_no': int,
-                        'score': float
-                    },
-                    ...
-                ]
-        
+
         Returns:
             bool: 저장 성공 여부
         """
         try:
+            # file 키 제거 + numpy float32 → Python float 변환 (None은 유지)
+            score_list = [
+                {k: (float(v) if k == 'score' and v is not None else v) for k, v in item.items() if k != 'file'}
+                for item in score_list
+            ]
             result = APIClient._make_request(
                 "POST",
-                "/scores/bulk",
+                "/assessments/score",
                 json={"scores": score_list}
             )
             return result.get('success', False)
